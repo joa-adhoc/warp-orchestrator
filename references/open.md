@@ -1,11 +1,6 @@
----
-name: warp-open
-description: Linux + Warp only; part of warp-orchestrator. Opens new agent sessions in new Warp tabs - an empty one, one for a task or ticket, or one per item of a list (PRs, repos, topics). Use when the user says "abrí una sesión nueva", "abrime otra terminal con Claude", "nueva pestaña para la 78420", "una sesión por cada uno de estos PRs". For umbrella subtasks use warp-umbrella; to reopen a session use warp-resume.
----
-
 # Open sessions in Warp
 
-Follow the rules in `warp-orchestrator` (name, folder, runtime, group, quota). Run `warp-check`
+Follow the rules in `SKILL.md` (name, folder, runtime, group, quota). Run `warp-check`
 first; if it fails, stop and say why.
 
 ## Steps

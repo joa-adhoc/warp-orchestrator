@@ -1,6 +1,6 @@
 ---
 name: warp-orchestrator
-description: Linux + Warp only. Makes the current agent session a coordinator that opens, tracks and resumes agent sessions (Claude Code, Codex or Gemini) in new Warp tabs, each named after the Odoo task it works on. Routes to warp-open (one session, one task, or a list), warp-umbrella (one session per open subtask of an Odoo umbrella task) and warp-resume (find and reopen an existing session). Use when the user says "abrí una sesión nueva", "nueva pestaña con Claude para X", "una sesión por subtarea de la 78564", "abrí sesiones para estos PRs", "retomá la sesión de la 77768", "qué sesiones abrí hoy", "coordiná estas tareas".
+description: Linux + Warp only. Makes the current agent session a coordinator that opens, tracks and resumes agent sessions (Claude Code, Codex or Gemini) in new Warp tabs, each named after the Odoo task it works on. Covers one session, one task, a list, one session per open subtask of an Odoo umbrella task, and resuming existing sessions, grouped in Warp tab groups. Use when the user says "abrí una sesión nueva", "nueva pestaña con Claude para X", "una sesión por subtarea de la 78564", "abrí sesiones para estos PRs", "retomá la sesión de la 77768", "qué sesiones abrí hoy", "coordiná estas tareas".
 ---
 
 # Warp orchestrator
@@ -10,17 +10,22 @@ Each tab runs its own agent session, named `<task id> <short name>`.
 
 ## Before anything
 
+If this session is not the coordinator agent (you were not started with `--agent
+warp-orchestrator`), offer once to open the coordinator in its own tab, named and colored, with
+`warp-orchestrator`, and go on here only if the user prefers. A plain session cannot get the
+coordinator's name or color.
+
 Run `warp-check`. If it exits non-zero, stop and tell the user the reason it printed. Do not open
 tabs another way. If `warp-check` is not found, tell the user to run
 `~/.agents/skills/warp-orchestrator/install.sh`.
 
 ## Route
 
-| The user asks for | Load |
+| The user asks for | Read |
 |---|---|
-| A new session, one task or ticket, or one session per item of a list | `warp-open` |
-| One session per subtask of an umbrella task | `warp-umbrella` |
-| Reopen a session that already exists | `warp-resume` |
+| A new session, one task or ticket, or one session per item of a list | `references/open.md` |
+| One session per subtask of an umbrella task | `references/umbrella.md` |
+| Reopen a session that already exists | `references/resume.md` |
 | What was opened | `warp-opened` (below) |
 
 ## Tools
@@ -35,7 +40,7 @@ warp-tab -d <dir> "<name>::<prompt>"         # one tab
 warp-tab -d <dir> -g "<group>" "<n1>::<p1>" "<n2>::<p2>"   # several, grouped per GROUP_MODE
 warp-tab --agent warp-orchestrator "Orquestador::"   # a session started with a Claude agent
 warp-tab -d <dir> -r <session-id>            # resume; repeat -r to resume several
-warp-orchestrator                            # start the coordinator here, named "Orquestador"
+warp-orchestrator [--here]                   # the coordinator in its own tab: "Orquestador", yellow
 warp-tab -a codex ...                        # other runtime: claude (default), codex, gemini
 warp-tab --dry-run ...                       # print the tab configs, open nothing
 warp-sessions <number or words>              # find existing sessions
@@ -69,9 +74,13 @@ warp-opened [--days N] [--group TEXT] [--open]   # tabs opened by warp-tab, open
   `closed`, then reopen them all in one call, keeping their context:
   `warp-tab -g "<group>" -r <id1> -r <id2> "<n1>::" "<n2>::"`. Never reopen a session that is
   still `open`: two processes would write the same session.
-- **Coordinator agent:** `agents/warp-orchestrator.md` is the coordinator's identity. Start it with
-  `warp-orchestrator` (named `Orquestador`, or `ORCHESTRATOR_NAME` in the config), or in a new tab
-  with `warp-tab --agent warp-orchestrator "Orquestador::"`. `--agent` works with any Claude agent.
+- **Coordinator agent:** `agents/warp-orchestrator.md` is the coordinator's identity.
+  `warp-orchestrator` opens it in its own tab, named `ORCHESTRATOR_NAME` (`Orquestador`) and
+  colored `ORCHESTRATOR_COLOR` (`yellow`) from the config; `--here` runs it in the current
+  terminal, named but without the color. `--agent` works with any Claude agent.
+- **Colors:** each group keeps one color across runs, saved in
+  `~/.local/state/warp-orchestrator/groups.json`. A new group takes a color no other group has
+  yet, never the coordinator's. Pass `-c` only when the user asks for a color.
 - **Quota:** with more than 6 tabs that carry a prompt, show the list and ask first. With fewer,
   show one line per tab and open. Opening tabs needs no permission.
 - **Report:** how many tabs opened, the group and its color. If `warp-tab` failed, quote its

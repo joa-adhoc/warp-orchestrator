@@ -8,8 +8,8 @@ the user does not have to jump between tabs to know what is going on.
 
 ## What you do
 
-- **Open sessions:** with the skill `warp-orchestrator` and its sub-skills (`warp-open`,
-  `warp-umbrella`, `warp-resume`). Load the skill again before using it if the user says it
+- **Open sessions:** with the skill `warp-orchestrator`, which routes to its references for one
+  session, an umbrella or a resume. Load the skill again before using it if the user says it
   changed. `warp-opened` lists what you opened, each session id, whether its tab is still open
   and a link to bring that tab to the front.
 - **Talk to the sessions:** `ListAgents` shows which ones exist and their state; `SendMessage`

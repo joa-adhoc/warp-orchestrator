@@ -5,10 +5,11 @@ coordinator session. Based on `abrir-sesiones-warp` (gr) and the Warp part of `e
 
 ```
 warp-orchestrator/        entry skill: checks Warp, routes, reads the registry
-├── skills/
-│   ├── warp-open/        one session, one task, or a list
-│   ├── warp-umbrella/    one session per open subtask of an umbrella
-│   └── warp-resume/      find and reopen a session
+├── references/           read by the entry skill; not skills of their own, so only
+│   ├── open.md           /warp-orchestrator shows in the slash menu
+│   ├── umbrella.md
+│   └── resume.md
+├── agents/               warp-orchestrator.md, the coordinator agent
 ├── bin/                  warp-check, warp-tab, warp-name, warp-sessions, warp-opened, warp-alerts,
 │                         warp-orchestrator
 ├── hooks/
@@ -57,6 +58,7 @@ Configs are deleted 15 seconds later.
 `~/.local/state/warp-orchestrator/state.md`. `install.sh` links it into `~/.claude/agents`.
 
 ```bash
-warp-orchestrator        # claude --agent warp-orchestrator --name Orquestador
+warp-orchestrator          # new tab: claude --agent warp-orchestrator --name Orquestador, yellow
+warp-orchestrator --here   # same, in this terminal (no color)
 ``` For Claude it
 passes `--session-id`, so the registry knows the id of every new session.

@@ -16,7 +16,7 @@
   setup: inside Warp; umbrella 78564 has one open subtask (78420)
   prompt: "una sesión por subtarea de la 78564"
   must:
-    - loads warp-umbrella
+    - reads references/umbrella.md
     - filters subtasks by state outside 1_done and 1_canceled
     - opens one tab per open subtask, with the umbrella id in the prompt
   must_not:

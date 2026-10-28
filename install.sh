@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Link the scripts into ~/.local/bin, the skills into the user skill folders, and register the
-# Claude Code SessionStart hook. Safe to run again.
+# Link the scripts into ~/.local/bin, the skill and the agent into the user folders, register the
+# Claude Code hooks and the Warp shortcut for tab groups. Safe to run again.
 set -euo pipefail
 
 root="$(cd "$(dirname "$0")" && pwd)"
@@ -15,13 +15,19 @@ for f in "$root"/bin/*; do
   ln -sfn "$f" "$bin_dir/$(basename "$f")"
 done
 
-for d in "$root"/skills/*/; do
-  name="$(basename "$d")"
-  ln -sfn "${d%/}" "$agents_dir/$name"
-done
-for name in warp-orchestrator $(ls "$root/skills"); do
-  ln -sfn "$agents_dir/$name" "$claude_dir/$name"
-done
+# Only the entry skill is registered; references/ are read by it, so they stay out of the / menu.
+ln -sfn "$agents_dir/warp-orchestrator" "$claude_dir/warp-orchestrator"
+
+# The group mode "keys" presses Warp's shortcut for this action. Add one unless the user has it.
+# Warp reads keybindings.yaml only at launch: until a restart, set the same key in
+# Settings > Keyboard shortcuts.
+keybindings="${XDG_CONFIG_HOME:-$HOME/.config}/warp-terminal/keybindings.yaml"
+action='"workspace:new_tab_group_from_active_or_selected_tabs"'
+if ! grep -qs "$action" "$keybindings"; then
+  mkdir -p "$(dirname "$keybindings")"
+  echo "$action: ctrl-alt-shift-G" >> "$keybindings"
+  echo "warp shortcut: ctrl-alt-shift-G for 'Create tab group from active or selected tab(s)'; restart Warp or set it in Settings > Keyboard shortcuts"
+fi
 
 mkdir -p "$HOME/.claude/agents"
 for f in "$root"/agents/*.md; do

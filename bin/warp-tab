@@ -89,12 +89,36 @@ fi
 config_dir="$(sed -n 's/^tab_configs=//p' <<<"$check")"
 scheme="$(sed -n 's/^scheme=//p' <<<"$check")"
 
-colors=(red green yellow blue magenta cyan)
-if [ -z "$color" ] && [ -n "$group" ]; then
-  color="${colors[$(( $(cksum <<<"$group" | cut -d' ' -f1) % ${#colors[@]} ))]}"
-fi
 if [[ "$group" =~ ^UM\ [0-9]+\  ]] && [ ${#group} -gt 40 ]; then
   group="$(warp-name --group "$(cut -d' ' -f2 <<<"$group")" "$(cut -d' ' -f4- <<<"$group")")"
+fi
+
+# Each group keeps one color across runs, saved in groups.json. A new group takes a color no other
+# group has yet (the least used once all are taken), never the coordinator's.
+ORCHESTRATOR_COLOR="${ORCHESTRATOR_COLOR:-yellow}"
+if [ -z "$color" ] && [ -n "$group" ]; then
+  color="$(python3 -I - "${XDG_STATE_HOME:-$HOME/.local/state}/warp-orchestrator/groups.json" \
+    "$group" "$ORCHESTRATOR_COLOR" "$dry" <<'PY'
+import json, os, sys
+path, group, reserved, dry = sys.argv[1:]
+palette = [c for c in ("red", "green", "blue", "magenta", "cyan", "yellow", "white") if c != reserved]
+try:
+    with open(path) as f:
+        groups = json.load(f)
+except (OSError, ValueError):
+    groups = {}
+color = groups.get(group)
+if color not in palette:
+    used = list(groups.values())
+    color = min(palette, key=lambda c: (used.count(c), palette.index(c)))
+    groups[group] = color
+    if dry != "1":
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w") as f:
+            json.dump(groups, f, ensure_ascii=False, indent=2)
+print(color)
+PY
+)"
 fi
 
 toml_str() {

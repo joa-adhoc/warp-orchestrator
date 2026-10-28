@@ -1,11 +1,6 @@
----
-name: warp-resume
-description: Linux + Warp only; part of warp-orchestrator. Finds an existing Claude Code or Codex session by task number or words and reopens it in a new Warp tab, compacting it when it is large. Use when the user says "abrí la sesión de la 77768", "retomá la sesión de lo de mails", "volvé a la sesión donde vimos X".
----
-
 # Resume a session
 
-Follow the rules in `warp-orchestrator`. Run `warp-check` first; if it fails, stop and say why.
+Follow the rules in `SKILL.md`. Run `warp-check` first; if it fails, stop and say why.
 
 ## Steps
 
@@ -14,7 +9,7 @@ Follow the rules in `warp-orchestrator`. Run `warp-check` first; if it fails, st
 2. **Pick:**
    - Take the first line if `match` is `title` or `first`.
    - If there are only `prompt` matches, or two similar candidates, show the first 3 and ask.
-   - No lines: say so and offer `warp-open` for a new session.
+   - No lines: say so and offer a new session (`references/open.md`).
 3. **Name:** the task number and its Odoo name, even when the old title already has the number.
    Without a task, keep the session's title.
 4. **Compact:** if `context_tokens` is above 250000, send `/compact` as the prompt. An empty
