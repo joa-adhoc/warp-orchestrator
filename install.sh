@@ -26,6 +26,10 @@ action='"workspace:new_tab_group_from_active_or_selected_tabs"'
 if ! grep -qs "$action" "$keybindings"; then
   mkdir -p "$(dirname "$keybindings")"
   echo "$action: ctrl-alt-shift-G" >> "$keybindings"
+  # warp-tab compares this with Warp's start time to know whether Warp has loaded the shortcut.
+  state_dir="${XDG_STATE_HOME:-$HOME/.local/state}/warp-orchestrator"
+  mkdir -p "$state_dir"
+  stat -c %Y "$keybindings" > "$state_dir/keybindings.mark"
   echo "warp shortcut: ctrl-alt-shift-G for 'Create tab group from active or selected tab(s)'; restart Warp or set it in Settings > Keyboard shortcuts"
 fi
 
