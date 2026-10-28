@@ -23,6 +23,11 @@ for name in warp-orchestrator $(ls "$root/skills"); do
   ln -sfn "$agents_dir/$name" "$claude_dir/$name"
 done
 
+mkdir -p "$HOME/.claude/agents"
+for f in "$root"/agents/*.md; do
+  ln -sfn "$f" "$HOME/.claude/agents/$(basename "$f")"
+done
+
 python3 -I - "$HOME/.claude/settings.json" "$root/hooks" <<'PY'
 import json, os, sys
 path, hooks_dir = sys.argv[1:]

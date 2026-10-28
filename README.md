@@ -32,7 +32,27 @@ Linux, Warp (stable or preview), `xdg-open`, `python3`, and the agent CLI the ta
 
 ## How a tab opens
 
-`warp-tab` writes a Warp tab config (TOML) with the title, color and folder, and a launcher script
-with the agent command. It opens the config with `warp://tab_config/<name>` and deletes it 15
-seconds later; the launcher deletes itself when it runs. For Claude it
+`warp-tab` writes a launcher script with the agent command (it deletes itself when it runs) and a
+Warp config that runs it:
+
+- One tab, or `--same-window`: a tab config (TOML), opened with `warp://tab_config/<name>`.
+- A group (`-g`) of 2+ tabs: a launch config with `tab_groups`, opened with `warp://launch/<name>`.
+  Warp only creates tab groups from its UI or from a launch config, and a launch config link always
+  opens a new window, so each group gets its own window.
+
+- `--palette`: a native group in the current window, created by typing in Warp's command palette
+  with `xdotool`, as in gr's `claude-tab`. It is the only option that controls the screen.
+
+Configs are deleted 15 seconds later.
+
+## Coordinator agent
+
+`agents/warp-orchestrator.md` is a Claude agent for the coordinator session, based on gr's
+`orquestador`: it opens sessions with these skills, talks to them with `ListAgents` and
+`SendMessage`, sums up where each one stands and keeps its pending items in
+`~/.local/state/warp-orchestrator/state.md`. `install.sh` links it into `~/.claude/agents`.
+
+```bash
+claude --agent warp-orchestrator
+``` For Claude it
 passes `--session-id`, so the registry knows the id of every new session.

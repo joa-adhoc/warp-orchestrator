@@ -8,8 +8,14 @@ usage: warp-tab [-d DIR] [-a claude|codex|gemini] [-g GROUP] [-c COLOR] [-r SESS
 
   -d DIR         working directory of the new tabs (default: current dir)
   -a RUNTIME     agent CLI to run (default: claude)
-  -g GROUP       group label: every tab gets the same color and the group is saved in the registry
-  -c COLOR       tab color: red green yellow blue magenta cyan (default: derived from GROUP)
+  -g GROUP       group label, saved in the registry. In the current window the tabs get GROUP's
+                 color and join the Warp group of the active tab, if it has one
+  -c COLOR       tab or group color: red green yellow blue magenta cyan (default: derived from GROUP)
+  --window       with -g and 2+ specs, open them in a new Warp window as a native group named GROUP
+  --palette      with -g and 2+ specs, create a native group named GROUP in the current window by
+                 typing in Warp's command palette with xdotool (X11). Takes over the keyboard for
+                 a few seconds; if Warp loses the focus the group is not created
+  --agent NAME   start Claude with --agent NAME (claude only)
   -r SESSION_ID  resume that session instead of starting a new one (one spec at most)
   --focus        stay on the last new tab (default: go back to the tab that ran warp-tab)
   --dry-run      print the tab configs instead of opening them
@@ -19,10 +25,14 @@ Names that start with a task id ("78420 Skill encarar: borrador ...") are shorte
 EOF
 }
 
-dir="$PWD"; runtime=claude; group=""; color=""; resume=""; dry=0; focus=0
+dir="$PWD"; runtime=claude; group=""; color=""; resume=""; dry=0; focus=0; new_window=0; palette=0
+agent=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --focus) focus=1; shift ;;
+    --palette) palette=1; shift ;;
+    --agent) agent="$2"; shift 2 ;;
+    --window) new_window=1; shift ;;
     -d) dir="$2"; shift 2 ;;
     -a) runtime="$2"; shift 2 ;;
     -g) group="$2"; shift 2 ;;
@@ -76,6 +86,7 @@ agent_cmd() {
     claude)
       args=(claude)
       if [ -n "$resume" ]; then args+=(--resume "$resume"); else args+=(--session-id "$sid"); fi
+      [ -z "$agent" ] || args+=(--agent "$agent")
       [ -z "$name" ] || args+=(--name "$name")
       [ -z "$prompt" ] || args+=("$prompt")
       ;;
@@ -93,17 +104,96 @@ agent_cmd() {
   printf '%s' "${out% }"
 }
 
+warp_focused() {
+  local pid
+  pid="$(xdotool getactivewindow getwindowpid 2>/dev/null)" || return 1
+  [[ "$(ps -o comm= -p "$pid")" == warp* ]]
+}
+
+press() {
+  warp_focused || return 1
+  xdotool "$@"
+}
+
+# A warp:// link opens the tab but the window manager may not raise Warp when another app has the
+# focus. Prefer the window asking for attention (the one the link went to), else the first one.
+raise_warp() {
+  local w target=""
+  for w in $(xdotool search --classname dev.warp.Warp 2>/dev/null); do
+    [ -n "$target" ] || target="$w"
+    if xprop -id "$w" _NET_WM_STATE 2>/dev/null | grep -q DEMANDS_ATTENTION; then target="$w"; break; fi
+  done
+  [ -z "$target" ] || xdotool windowactivate --sync "$target" 2>/dev/null || true
+}
+
+# Wait until the new tab shows the agent's title instead of the shell's.
+wait_tab_ready() {
+  local title
+  for _ in $(seq 1 50); do
+    title="$(xdotool getactivewindow getwindowname 2>/dev/null || true)"
+    case "$title" in bash*|"New session"|"") sleep 0.2 ;; *) sleep 0.5; return 0 ;; esac
+  done
+}
+
+# Same steps as gr's claude-tab: group the active tab from the palette, then name the group in the
+# rename modal Warp opens right after. The palette filters with a lag: short query, then wait.
+palette_group() {
+  wait_tab_ready
+  warp_focused || raise_warp
+  press key ctrl+shift+p || return 1
+  sleep 0.8
+  press type --delay 30 "group from active" || return 1
+  sleep 1.2
+  press key Return || return 1
+  sleep 0.8
+  press type --delay 30 "$1" || return 1
+  sleep 0.5
+  press key Return || return 1
+  sleep 0.5
+}
+
+if [ "$palette" = 1 ] && [ "$dry" = 0 ] && ! command -v xdotool >/dev/null; then
+  echo "--palette needs xdotool (X11)" >&2; exit 1
+fi
+if [ -n "$agent" ] && [ "$runtime" != claude ]; then
+  echo "--agent is for claude only" >&2; exit 2
+fi
+# New tabs land after the active tab and the group is made from the first new one, so start from
+# the coordinator's tab with its window in front.
+if [ "$palette" = 1 ] && [ "$dry" = 0 ]; then
+  if [ -n "${WARP_FOCUS_URL:-}" ]; then
+    xdg-open "$WARP_FOCUS_URL" >/dev/null 2>&1
+    sleep 0.8
+  fi
+  raise_warp
+fi
+
 state_dir="${XDG_STATE_HOME:-$HOME/.local/state}/warp-orchestrator"
 launch_dir="$state_dir/launch"
 mkdir -p "$state_dir" "$launch_dir"
 [ "$dry" = 1 ] || mkdir -p "$config_dir"
 
-prev_win=""
-if [ "$dry" = 0 ] && command -v xprop >/dev/null; then
-  prev_win="$(xprop -root _NET_ACTIVE_WINDOW 2>/dev/null | grep -o '0x[0-9a-f]*' || true)"
-fi
+register() {
+  python3 -I - "$state_dir/sessions.jsonl" "$runtime" "$1" "$2" "$group" "$color" "$dir" "$3" "$resume" <<'PY'
+import json, sys, time
+path, runtime, sid, name, group, color, cwd, prompt, resume = sys.argv[1:]
+row = {"ts": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "runtime": runtime, "session_id": sid or None,
+       "name": name, "group": group or None, "color": color or None, "cwd": cwd,
+       "prompt": prompt[:200], "resumed": bool(resume)}
+with open(path, "a") as f:
+    f.write(json.dumps(row, ensure_ascii=False) + "\n")
+PY
+  echo "opened: ${2:-<empty>} (${runtime}${1:+ $1})"
+}
 
-opened=0
+# Warp creates tab groups only from its UI or from a launch config, and a launch config link always
+# opens a new window. In the current window, new tabs land after the active tab and inherit its group.
+window_mode=0
+[ -n "$group" ] && [ ${#specs[@]} -ge 2 ] && [ "$new_window" = 1 ] && window_mode=1
+launch_configs_dir="$(dirname "$config_dir")/launch_configurations"
+[ "$dry" = 1 ] || mkdir -p "$launch_configs_dir"
+
+names=(); sids=(); prompts=(); launchers=()
 for spec in "${specs[@]}"; do
   name="${spec%%::*}"; prompt=""
   [[ "$spec" == *::* ]] && prompt="${spec#*::}"
@@ -113,51 +203,90 @@ for spec in "${specs[@]}"; do
   sid="$resume"
   if [ "$runtime" = claude ] && [ -z "$sid" ]; then sid="$(cat /proc/sys/kernel/random/uuid)"; fi
 
-  stem="warp_orchestrator_$(date +%s%N)"
-  toml="name = $(toml_str "${name:-$runtime}")"$'\n'
-  # A fixed title wins over the terminal title, so Claude (which titles the tab from --name) and the
-  # ✅/🔔 marks of hooks/agent-event would never show. Other runtimes get the fixed title.
-  if [ -n "$name" ] && [ "$runtime" != claude ]; then
-    toml+="title = $(toml_str "$name")"$'\n'
-  fi
-  [ -z "$color" ] || toml+="color = $(toml_str "$color")"$'\n'
-  toml+=$'\n[[panes]]\nid = "agent"\ntype = "terminal"\n'
-  toml+="directory = $(toml_str "$dir")"$'\n'
   # Warp types the command into the new tab, so a keystroke there can land at its end. The tab runs
   # a short launcher that ignores its arguments; the real command, with its quoting, lives inside.
-  launcher="$launch_dir/$stem.sh"
-  toml+="commands = [$(toml_str "bash $launcher")]"$'\n'
+  launcher="$launch_dir/warp_orchestrator_$(date +%s%N).sh"
   script=$'#!/usr/bin/env bash\nrm -f -- "$0"\nexec '"$(agent_cmd "$name" "$prompt" "$sid")"$'\n'
-
   if [ "$dry" = 1 ]; then
-    echo "# $stem.toml → $scheme://tab_config/$stem"
-    echo "$toml"
     echo "# $launcher"
     echo "$script"
-    continue
+  else
+    printf '%s' "$script" > "$launcher"
   fi
-
-  printf '%s' "$script" > "$launcher"
-  printf '%s' "$toml" > "$config_dir/$stem.toml"
-  # Warp picks up new tab configs with a file watcher; give it a moment before the deeplink.
-  sleep 1
-  xdg-open "$scheme://tab_config/$stem" >/dev/null 2>&1
-  # The config only has to live until Warp reads it; otherwise it piles up in the "+" menu.
-  (sleep 15; rm -f "$config_dir/$stem.toml") >/dev/null 2>&1 &
-  disown
-
-  python3 -I - "$state_dir/sessions.jsonl" "$runtime" "$sid" "$name" "$group" "$color" "$dir" "$prompt" "$resume" <<'PY'
-import json, sys, time
-path, runtime, sid, name, group, color, cwd, prompt, resume = sys.argv[1:]
-row = {"ts": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "runtime": runtime, "session_id": sid or None,
-       "name": name, "group": group or None, "color": color or None, "cwd": cwd,
-       "prompt": prompt[:200], "resumed": bool(resume)}
-with open(path, "a") as f:
-    f.write(json.dumps(row, ensure_ascii=False) + "\n")
-PY
-  opened=$((opened + 1))
-  echo "opened: ${name:-<empty>} (${runtime}${sid:+ $sid})"
+  names+=("$name"); sids+=("$sid"); prompts+=("$prompt"); launchers+=("$launcher")
 done
+
+opened=0
+if [ "$window_mode" = 1 ]; then
+  stem="warp_orchestrator_$(date +%s%N)"
+  # YAML is a superset of JSON, so json.dumps gives a valid launch config with safe quoting.
+  config="$(python3 -I - "$stem" "$dir" "$group" "$color" "$runtime" "${#names[@]}" "${names[@]}" "${launchers[@]}" <<'PY'
+import json, sys
+stem, cwd, group, color, runtime, count = sys.argv[1:7]
+count = int(count)
+names, launchers = sys.argv[7:7 + count], sys.argv[7 + count:]
+tabs = []
+for name, launcher in zip(names, launchers):
+    tab = {"layout": {"cwd": cwd, "commands": [{"exec": f"bash {launcher}"}]}, "group": 0}
+    # Claude titles the tab from --name; a fixed title would hide that and the hook marks.
+    if name and runtime != "claude":
+        tab["title"] = name
+    tabs.append(tab)
+group_entry = {"name": group}
+if color:
+    group_entry["color"] = color
+print(json.dumps({"name": stem, "active_window_index": 0,
+                  "windows": [{"active_tab_index": 0, "tabs": tabs, "tab_groups": [group_entry]}]},
+                 ensure_ascii=False, indent=2))
+PY
+)"
+  if [ "$dry" = 1 ]; then
+    echo "# $launch_configs_dir/$stem.yaml → $scheme://launch/$stem"
+    echo "$config"
+    exit 0
+  fi
+  printf '%s\n' "$config" > "$launch_configs_dir/$stem.yaml"
+  xdg-open "$scheme://launch/$stem" >/dev/null 2>&1
+  (sleep 15; rm -f "$launch_configs_dir/$stem.yaml") >/dev/null 2>&1 &
+  disown
+  for i in "${!names[@]}"; do
+    register "${sids[$i]}" "${names[$i]}" "${prompts[$i]}"
+    opened=$((opened + 1))
+  done
+else
+  for i in "${!names[@]}"; do
+    name="${names[$i]}"
+    stem="warp_orchestrator_$(date +%s%N)"
+    toml="name = $(toml_str "${name:-$runtime}")"$'\n'
+    # A fixed title wins over the terminal title, so Claude (which titles the tab from --name) and
+    # the ✅/🔔 marks of hooks/agent-event would never show. Other runtimes get the fixed title.
+    if [ -n "$name" ] && [ "$runtime" != claude ]; then
+      toml+="title = $(toml_str "$name")"$'\n'
+    fi
+    [ -z "$color" ] || toml+="color = $(toml_str "$color")"$'\n'
+    toml+=$'\n[[panes]]\nid = "agent"\ntype = "terminal"\n'
+    toml+="directory = $(toml_str "$dir")"$'\n'
+    toml+="commands = [$(toml_str "bash ${launchers[$i]}")]"$'\n'
+    if [ "$dry" = 1 ]; then
+      echo "# $config_dir/$stem.toml → $scheme://tab_config/$stem"
+      echo "$toml"
+      continue
+    fi
+    printf '%s' "$toml" > "$config_dir/$stem.toml"
+    # Warp picks up new tab configs with a file watcher; give it a moment before the deeplink.
+    sleep 1
+    xdg-open "$scheme://tab_config/$stem" >/dev/null 2>&1
+    # The config only has to live until Warp reads it; otherwise it piles up in the "+" menu.
+    (sleep 15; rm -f "$config_dir/$stem.toml") >/dev/null 2>&1 &
+    disown
+    register "${sids[$i]}" "$name" "${prompts[$i]}"
+    opened=$((opened + 1))
+    # The next tabs land after the active one and inherit its group, so grouping the first is enough.
+    if [ "$i" = 0 ] && [ "$palette" = 1 ] && [ -n "$group" ] && [ ${#names[@]} -ge 2 ]; then
+      palette_group "$group" || echo "warp-tab: Warp lost the focus, the group was not created" >&2
+    fi
+  done
+fi
 
 [ "$dry" = 1 ] && exit 0
 
@@ -166,13 +295,6 @@ if [ "$focus" = 0 ] && [ "$opened" -gt 0 ]; then
   # Warp sets WARP_FOCUS_URL in every session; opening it brings that tab back to the front.
   if [ -n "${WARP_FOCUS_URL:-}" ]; then
     xdg-open "$WARP_FOCUS_URL" >/dev/null 2>&1
-  fi
-  # The deeplinks also raise the Warp window; give the focus back to the app that had it.
-  if [ -n "$prev_win" ] && ! xprop -id "$prev_win" WM_CLASS 2>/dev/null | grep -q dev.warp.Warp; then
-    if command -v xdotool >/dev/null; then
-      sleep 0.5
-      xdotool windowactivate "$prev_win" 2>/dev/null || true
-    fi
   fi
 fi
 

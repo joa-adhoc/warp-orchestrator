@@ -1,6 +1,6 @@
 ---
 name: warp-umbrella
-description: Linux + Warp only; part of warp-orchestrator. Opens one agent session per open subtask of an Odoo umbrella task, each in its own Warp tab, all in one color group named after the umbrella. Use when the user says "abrí sesiones para la umbrella 78564", "una sesión por subtarea", "arrancá las subtareas de la 77526".
+description: Linux + Warp only; part of warp-orchestrator. Opens one agent session per open subtask of an Odoo umbrella task, each in its own Warp tab, all in a new Warp window with a native tab group named after the umbrella. Use when the user says "abrí sesiones para la umbrella 78564", "una sesión por subtarea", "arrancá las subtareas de la 77526".
 ---
 
 # One session per subtask
