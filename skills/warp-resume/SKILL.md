@@ -28,6 +28,14 @@ Follow the rules in `warp-orchestrator`. Run `warp-check` first; if it fails, st
    warp-tab -a <runtime> -d <cwd> -r <session_id> "<id> <Odoo name>::"
    ```
 
+   Several sessions from the same folder go in one call, in a group: one `-r` per spec, in order.
+
+   ```bash
+   warp-tab -d <cwd> -g "<group>" -r <id1> -r <id2> "<n1>::" "<n2>::"
+   ```
+
+   Never resume a session whose tab is still open: ask the user to close it first.
+
 6. **Report** which session opened and how many context tokens it had.
 
 Gemini sessions cannot be resumed: Gemini resumes by per-project index, not by id.

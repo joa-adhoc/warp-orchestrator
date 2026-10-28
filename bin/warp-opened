@@ -1,43 +1,86 @@
 #!/usr/bin/env python3
 """List the tabs warp-tab opened, newest first, from its registry.
 
-  warp-opened [--days N] [--group TEXT]
+  warp-opened [--days N] [--group TEXT] [--open]
 
 One tab-separated line per tab, no header:
-  opened_at  runtime  session_id  group  name  cwd
+  opened_at  runtime  session_id  live  group  name  cwd  tab_url
+
+live is "open" plus the agent's status (busy, idle, waiting...) while a Claude process runs that
+session, or "closed". tab_url (warp://session/<uuid>) brings that tab to the front when opened
+with xdg-open. Both are known for Claude sessions only; other runtimes show "-".
 """
 import argparse
+import glob
 import json
 import os
 import time
 
-PATH = os.path.join(os.environ.get("XDG_STATE_HOME") or os.path.expanduser("~/.local/state"),
-                    "warp-orchestrator", "sessions.jsonl")
+STATE = os.environ.get("XDG_STATE_HOME") or os.path.expanduser("~/.local/state")
+PATH = os.path.join(STATE, "warp-orchestrator", "sessions.jsonl")
+
+
+def live_claude_sessions():
+    """sessionId -> (status, warp tab uuid) for every running Claude process."""
+    live = {}
+    for path in glob.glob(os.path.expanduser("~/.claude/sessions/*.json")):
+        try:
+            with open(path) as f:
+                d = json.load(f)
+        except (OSError, ValueError):
+            continue
+        pid, sid = d.get("pid"), d.get("sessionId")
+        if not pid or not sid or not os.path.exists(f"/proc/{pid}"):
+            continue
+        tab = ""
+        try:
+            with open(f"/proc/{pid}/environ", "rb") as f:
+                for var in f.read().split(b"\0"):
+                    if var.startswith(b"WARP_TERMINAL_SESSION_UUID="):
+                        tab = var.split(b"=", 1)[1].decode()
+        except OSError:
+            pass
+        live[sid] = (d.get("status") or "", tab)
+    return live
 
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--days", type=float, default=1)
     ap.add_argument("--group", default="")
+    ap.add_argument("--open", action="store_true", help="only tabs whose session is still running")
     args = ap.parse_args()
     if not os.path.exists(PATH):
         return
     since = time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(time.time() - args.days * 86400))
-    rows = []
+    live = live_claude_sessions()
+    rows, seen = [], set()
     with open(PATH) as f:
-        for line in f:
-            try:
-                r = json.loads(line)
-            except ValueError:
-                continue
-            if r.get("ts", "")[:19] < since:
-                continue
-            if args.group and args.group.lower() not in (r.get("group") or "").lower():
-                continue
-            rows.append(r)
-    for r in reversed(rows):
-        print("\t".join([r["ts"][:16].replace("T", " "), r.get("runtime", ""), r.get("session_id") or "-",
-                         r.get("group") or "-", r.get("name") or "<empty>", r.get("cwd", "")]))
+        lines = f.readlines()
+    # Newest first; a session reopened with -r shows once, with its latest tab.
+    for line in reversed(lines):
+        try:
+            r = json.loads(line)
+        except ValueError:
+            continue
+        sid = r.get("session_id")
+        if r.get("ts", "")[:19] < since or (sid and sid in seen):
+            continue
+        if args.group and args.group.lower() not in (r.get("group") or "").lower():
+            continue
+        seen.add(sid)
+        if r.get("runtime") == "claude" and sid:
+            status, tab = live.get(sid, (None, ""))
+            state = "closed" if status is None else f"open {status}".strip()
+        else:
+            state, tab = "-", ""
+        if args.open and not state.startswith("open"):
+            continue
+        rows.append([r["ts"][:16].replace("T", " "), r.get("runtime", ""), sid or "-", state,
+                     r.get("group") or "-", r.get("name") or "<empty>", r.get("cwd", ""),
+                     f"warp://session/{tab}" if tab else "-"])
+    for row in rows:
+        print("\t".join(row))
 
 
 if __name__ == "__main__":

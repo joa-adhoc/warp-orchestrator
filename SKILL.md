@@ -32,14 +32,14 @@ warp-check                                   # exit 0 inside Warp on Linux
 warp-name 78420 "Skill encarar: borrador"    # → 78420 Skill encarar
 warp-name --group 78564 "Dev Tips en la era IA"  # → UM 78564 · Dev Tips en la era IA
 warp-tab -d <dir> "<name>::<prompt>"         # one tab
-warp-tab -d <dir> -g "<group>" "<n1>::<p1>" "<n2>::<p2>"   # several: new window, native group
-warp-tab --palette -g "<group>" ...          # several in this window, native group (xdotool)
-warp-tab --agent warp-orchestrator "Coordinator::"   # a session started with a Claude agent
-warp-tab -d <dir> -r <session-id>            # resume
+warp-tab -d <dir> -g "<group>" "<n1>::<p1>" "<n2>::<p2>"   # several, grouped per GROUP_MODE
+warp-tab --agent warp-orchestrator "Orquestador::"   # a session started with a Claude agent
+warp-tab -d <dir> -r <session-id>            # resume; repeat -r to resume several
+warp-orchestrator                            # start the coordinator here, named "Orquestador"
 warp-tab -a codex ...                        # other runtime: claude (default), codex, gemini
 warp-tab --dry-run ...                       # print the tab configs, open nothing
 warp-sessions <number or words>              # find existing sessions
-warp-opened [--days N] [--group TEXT]        # tabs opened by warp-tab
+warp-opened [--days N] [--group TEXT] [--open]   # tabs opened by warp-tab, open or closed
 ```
 
 ## Rules for every tab
@@ -51,16 +51,27 @@ warp-opened [--days N] [--group TEXT]        # tabs opened by warp-tab
   folder without `hasTrustDialogAccepted: true` in `~/.claude.json` stops at the trust prompt: use
   the coordinator's folder and name the repo and its path in the prompt.
 - **Runtime (`-a`):** `claude` unless the user asks for another.
-- **Group (`-g`):** only with two or more tabs. Warp creates groups only from its UI or from a
-  launch config, so there are three ways, and the group is saved in the registry in all of them:
-  - Default: the tabs open in the current window with the group's color; they land after the
-    active tab and join its Warp group, if it has one.
-  - `--palette`: a native group in the current window. `warp-tab` types in Warp's command palette
-    with `xdotool`, as gr's `claude-tab` does, so tell the user not to type for about 10 seconds.
-    If Warp loses the focus, the tabs open without the group.
-  - `--window`: a native group in a new Warp window, from a launch config, with no screen control.
-- **Coordinator agent:** `agents/warp-orchestrator.md` (`claude --agent warp-orchestrator`) is the
-  coordinator's identity. `--agent` opens a tab with any Claude agent.
+- **Group (`-g`):** always with two or more tabs, so the user finds them together. Warp creates
+  groups only from its UI or from a launch config, so there are three modes. `warp-tab` uses
+  `GROUP_MODE` from `~/.config/warp-orchestrator/config` unless a flag says otherwise; do not pass
+  a flag unless the user asks for a mode. The group is saved in the registry in all of them.
+  - `keys`: a native group in the current window. `xdotool` presses the Warp shortcut of "Create
+    tab group from active or selected tab(s)" and types the name in the rename box Warp opens.
+    Before running it, tell the user not to type for about 10 seconds. It needs that shortcut set
+    in Warp (Settings > Keyboard shortcuts); without it, or if Warp loses the focus, the tabs open
+    without the group. Never search Warp's command palette instead: a slow filter can pick a file
+    and the group name gets typed into it.
+  - `window`: a native group in a new Warp window, from a launch config, with no screen control.
+  - `inherit`: no native group; the tabs get the group's color, land after the active tab and join
+    its Warp group, if it has one.
+- **Group tabs that are already open:** no script can move or close a Warp tab. Ask the user to
+  close them (the sessions stay on disk), check with `warp-opened` that their `live` column says
+  `closed`, then reopen them all in one call, keeping their context:
+  `warp-tab -g "<group>" -r <id1> -r <id2> "<n1>::" "<n2>::"`. Never reopen a session that is
+  still `open`: two processes would write the same session.
+- **Coordinator agent:** `agents/warp-orchestrator.md` is the coordinator's identity. Start it with
+  `warp-orchestrator` (named `Orquestador`, or `ORCHESTRATOR_NAME` in the config), or in a new tab
+  with `warp-tab --agent warp-orchestrator "Orquestador::"`. `--agent` works with any Claude agent.
 - **Quota:** with more than 6 tabs that carry a prompt, show the list and ask first. With fewer,
   show one line per tab and open. Opening tabs needs no permission.
 - **Report:** how many tabs opened, the group and its color. If `warp-tab` failed, quote its
@@ -70,7 +81,10 @@ warp-opened [--days N] [--group TEXT]        # tabs opened by warp-tab
 
 `warp-opened` reads the registry `warp-tab` writes in
 `~/.local/state/warp-orchestrator/sessions.jsonl`. Use it to answer "qué abrí hoy" or to find the
-session id of a tab. To tell which tasks are done, check their `state` in Odoo
+session id of a tab. For Claude sessions it also says whether the tab is still `open` (with the
+agent's status: busy, idle, waiting) or `closed`, read from Claude's `~/.claude/sessions/*.json`,
+and gives the tab's `warp://session/<uuid>` link: `xdg-open` it to bring that tab to the front.
+To tell which tasks are done, check their `state` in Odoo
 (`1_done` or `1_canceled`) and tell the user which tabs to close: there is no known way to close a
 Warp tab from a script.
 
@@ -95,8 +109,8 @@ Sounds and their files live in `~/.config/warp-orchestrator/config`.
   that ran it (Warp's `WARP_FOCUS_URL`). A key pressed in that second lands in the new tab. The
   Warp window comes to the front even if the user was in another app. Pass `--focus` only when
   the user wants to stay on the new tab.
-- Screen control: only `--palette` sends keys (`xdotool`). Everything else uses Warp's own files
-  and `warp://` links.
+- Screen control: only the `keys` group mode sends keys (`xdotool`). Everything else uses Warp's
+  own files and `warp://` links.
 - `warp-tab` writes a temporary tab config in Warp's `tab_configs` folder and opens it with a
   `warp://tab_config/<name>` link; it deletes the file 15 seconds later. The tab runs a launcher
   script from `~/.local/state/warp-orchestrator/launch/` that deletes itself and execs the agent.

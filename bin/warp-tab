@@ -4,7 +4,7 @@ set -euo pipefail
 
 usage() {
   cat <<'EOF'
-usage: warp-tab [-d DIR] [-a claude|codex|gemini] [-g GROUP] [-c COLOR] [-r SESSION_ID] [--dry-run] ["NAME::PROMPT" ...]
+usage: warp-tab [-d DIR] [-a claude|codex|gemini] [-g GROUP [--keys|--window|--inherit]] [-c COLOR] [-r SESSION_ID]... [--agent NAME] [--focus] [--dry-run] ["NAME::PROMPT" ...]
 
   -d DIR         working directory of the new tabs (default: current dir)
   -a RUNTIME     agent CLI to run (default: claude)
@@ -12,11 +12,14 @@ usage: warp-tab [-d DIR] [-a claude|codex|gemini] [-g GROUP] [-c COLOR] [-r SESS
                  color and join the Warp group of the active tab, if it has one
   -c COLOR       tab or group color: red green yellow blue magenta cyan (default: derived from GROUP)
   --window       with -g and 2+ specs, open them in a new Warp window as a native group named GROUP
-  --palette      with -g and 2+ specs, create a native group named GROUP in the current window by
-                 typing in Warp's command palette with xdotool (X11). Takes over the keyboard for
-                 a few seconds; if Warp loses the focus the group is not created
+  --keys         with -g and 2+ specs, create a native group named GROUP in the current window:
+                 xdotool (X11) presses the Warp shortcut of "Create tab group from active or
+                 selected tab(s)" and types the name. Takes over the keyboard for a few seconds;
+                 if Warp loses the focus or has no shortcut for it, the group is not created
   --agent NAME   start Claude with --agent NAME (claude only)
-  -r SESSION_ID  resume that session instead of starting a new one (one spec at most)
+  -r SESSION_ID  resume that session instead of starting a new one. Repeat it to resume several:
+                 the Nth -r goes with the Nth spec (with no specs, one empty spec per -r)
+  --inherit      with -g, no native group: color only, and the tabs join the active tab's group
   --focus        stay on the last new tab (default: go back to the tab that ran warp-tab)
   --dry-run      print the tab configs instead of opening them
 
@@ -25,19 +28,20 @@ Names that start with a task id ("78420 Skill encarar: borrador ...") are shorte
 EOF
 }
 
-dir="$PWD"; runtime=claude; group=""; color=""; resume=""; dry=0; focus=0; new_window=0; palette=0
+dir="$PWD"; runtime=claude; group=""; color=""; resumes=(); dry=0; focus=0; new_window=0; palette=0; inherit=0
 agent=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --focus) focus=1; shift ;;
-    --palette) palette=1; shift ;;
+    --keys) palette=1; shift ;;
     --agent) agent="$2"; shift 2 ;;
     --window) new_window=1; shift ;;
     -d) dir="$2"; shift 2 ;;
     -a) runtime="$2"; shift 2 ;;
     -g) group="$2"; shift 2 ;;
     -c) color="$2"; shift 2 ;;
-    -r) resume="$2"; shift 2 ;;
+    -r) resumes+=("$2"); shift 2 ;;
+    --inherit) inherit=1; shift ;;
     --dry-run) dry=1; shift ;;
     -h|--help) usage; exit 0 ;;
     --) shift; break ;;
@@ -46,13 +50,32 @@ while [ $# -gt 0 ]; do
   esac
 done
 specs=("$@")
-[ ${#specs[@]} -gt 0 ] || specs=("::")
+if [ ${#specs[@]} -eq 0 ]; then
+  if [ ${#resumes[@]} -gt 0 ]; then
+    for _ in "${resumes[@]}"; do specs+=("::"); done
+  else
+    specs=("::")
+  fi
+fi
+
+# With -g and 2+ tabs, how the group is made: the flag wins, then GROUP_MODE in the config.
+config_file="${XDG_CONFIG_HOME:-$HOME/.config}/warp-orchestrator/config"
+GROUP_MODE=inherit
+# shellcheck source=/dev/null
+[ -f "$config_file" ] && . "$config_file"
+if [ "$palette" = 0 ] && [ "$new_window" = 0 ] && [ "$inherit" = 0 ]; then
+  case "$GROUP_MODE" in keys) palette=1 ;; window) new_window=1 ;; esac
+fi
+if [ "$palette" = 1 ] && ! command -v xdotool >/dev/null; then
+  echo "warp-tab: --keys needs xdotool (X11); opening without a native group" >&2
+  palette=0
+fi
 
 case "$runtime" in claude|codex|gemini) ;; *) echo "unknown runtime: $runtime" >&2; exit 2 ;; esac
-if [ -n "$resume" ] && [ ${#specs[@]} -gt 1 ]; then
-  echo "-r takes one spec at most" >&2; exit 2
+if [ ${#resumes[@]} -gt 0 ] && [ ${#resumes[@]} -ne ${#specs[@]} ]; then
+  echo "give one spec per -r (or no specs)" >&2; exit 2
 fi
-if [ "$runtime" = gemini ] && [ -n "$resume" ]; then
+if [ "$runtime" = gemini ] && [ ${#resumes[@]} -gt 0 ]; then
   echo "resume is not supported for gemini (it resumes by per-project index, not by id)" >&2; exit 2
 fi
 command -v "$runtime" >/dev/null || { echo "missing: $runtime" >&2; exit 1; }
@@ -81,7 +104,7 @@ toml_str() {
 }
 
 agent_cmd() {
-  local name="$1" prompt="$2" sid="$3" args=()
+  local name="$1" prompt="$2" sid="$3" resume="$4" args=()
   case "$runtime" in
     claude)
       args=(claude)
@@ -135,16 +158,40 @@ wait_tab_ready() {
   done
 }
 
-# Same steps as gr's claude-tab: group the active tab from the palette, then name the group in the
-# rename modal Warp opens right after. The palette filters with a lag: short query, then wait.
+# The xdotool form of the Warp shortcut bound to the group action, from the user's keybindings.
+# gr's claude-tab searched the command palette instead, but a slow filter can pick another entry
+# (a file, for example) and the group name then lands inside it. A shortcut runs only this action.
+group_key() {
+  local file="${XDG_CONFIG_HOME:-$HOME/.config}/warp-terminal/keybindings.yaml" raw
+  [ -f "$file" ] || return 1
+  raw="$(sed -n 's/^[[:space:]]*"\{0,1\}workspace:new_tab_group_from_active_or_selected_tabs"\{0,1\}:[[:space:]]*//p' "$file" \
+    | tr -d "\"' " | head -1)"
+  [ -n "$raw" ] && [ "$raw" != none ] || return 1
+  python3 -I - "$raw" <<'KEY'
+import sys
+parts = sys.argv[1].split("-")
+mods = {"ctrl": "ctrl", "alt": "alt", "shift": "shift", "cmd": "super", "meta": "super", "super": "super"}
+keys = [mods[p.lower()] for p in parts[:-1] if p.lower() in mods]
+last = parts[-1]
+if len(last) == 1 and last.isalpha():
+    if last.isupper() and "shift" not in keys:
+        keys.append("shift")
+    last = last.lower()
+print("+".join(keys + [last]))
+KEY
+}
+
+# Group the active tab with the shortcut, then name the group in the rename modal Warp opens right
+# after creating it (WorkspaceAction::RenameTabGroup).
 palette_group() {
+  local key
+  key="$(group_key)" || {
+    echo "warp-tab: Warp has no shortcut for 'Create tab group from active or selected tab(s)'; set one in Settings > Keyboard shortcuts" >&2
+    return 1
+  }
   wait_tab_ready
   warp_focused || raise_warp
-  press key ctrl+shift+p || return 1
-  sleep 0.8
-  press type --delay 30 "group from active" || return 1
-  sleep 1.2
-  press key Return || return 1
+  press key "$key" || return 1
   sleep 0.8
   press type --delay 30 "$1" || return 1
   sleep 0.5
@@ -152,9 +199,6 @@ palette_group() {
   sleep 0.5
 }
 
-if [ "$palette" = 1 ] && [ "$dry" = 0 ] && ! command -v xdotool >/dev/null; then
-  echo "--palette needs xdotool (X11)" >&2; exit 1
-fi
 if [ -n "$agent" ] && [ "$runtime" != claude ]; then
   echo "--agent is for claude only" >&2; exit 2
 fi
@@ -174,7 +218,7 @@ mkdir -p "$state_dir" "$launch_dir"
 [ "$dry" = 1 ] || mkdir -p "$config_dir"
 
 register() {
-  python3 -I - "$state_dir/sessions.jsonl" "$runtime" "$1" "$2" "$group" "$color" "$dir" "$3" "$resume" <<'PY'
+  python3 -I - "$state_dir/sessions.jsonl" "$runtime" "$1" "$2" "$group" "$color" "$dir" "$3" "$4" <<'PY'
 import json, sys, time
 path, runtime, sid, name, group, color, cwd, prompt, resume = sys.argv[1:]
 row = {"ts": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "runtime": runtime, "session_id": sid or None,
@@ -193,8 +237,10 @@ window_mode=0
 launch_configs_dir="$(dirname "$config_dir")/launch_configurations"
 [ "$dry" = 1 ] || mkdir -p "$launch_configs_dir"
 
-names=(); sids=(); prompts=(); launchers=()
-for spec in "${specs[@]}"; do
+names=(); sids=(); prompts=(); launchers=(); rids=()
+for idx in "${!specs[@]}"; do
+  spec="${specs[$idx]}"
+  resume="${resumes[$idx]:-}"
   name="${spec%%::*}"; prompt=""
   [[ "$spec" == *::* ]] && prompt="${spec#*::}"
   if [[ "$name" =~ ^[0-9]+\  ]] && [ ${#name} -gt 32 ]; then
@@ -206,14 +252,14 @@ for spec in "${specs[@]}"; do
   # Warp types the command into the new tab, so a keystroke there can land at its end. The tab runs
   # a short launcher that ignores its arguments; the real command, with its quoting, lives inside.
   launcher="$launch_dir/warp_orchestrator_$(date +%s%N).sh"
-  script=$'#!/usr/bin/env bash\nrm -f -- "$0"\nexec '"$(agent_cmd "$name" "$prompt" "$sid")"$'\n'
+  script=$'#!/usr/bin/env bash\nrm -f -- "$0"\nexec '"$(agent_cmd "$name" "$prompt" "$sid" "$resume")"$'\n'
   if [ "$dry" = 1 ]; then
     echo "# $launcher"
     echo "$script"
   else
     printf '%s' "$script" > "$launcher"
   fi
-  names+=("$name"); sids+=("$sid"); prompts+=("$prompt"); launchers+=("$launcher")
+  names+=("$name"); sids+=("$sid"); prompts+=("$prompt"); launchers+=("$launcher"); rids+=("$resume")
 done
 
 opened=0
@@ -250,7 +296,7 @@ PY
   (sleep 15; rm -f "$launch_configs_dir/$stem.yaml") >/dev/null 2>&1 &
   disown
   for i in "${!names[@]}"; do
-    register "${sids[$i]}" "${names[$i]}" "${prompts[$i]}"
+    register "${sids[$i]}" "${names[$i]}" "${prompts[$i]}" "${rids[$i]}"
     opened=$((opened + 1))
   done
 else
@@ -279,11 +325,11 @@ else
     # The config only has to live until Warp reads it; otherwise it piles up in the "+" menu.
     (sleep 15; rm -f "$config_dir/$stem.toml") >/dev/null 2>&1 &
     disown
-    register "${sids[$i]}" "$name" "${prompts[$i]}"
+    register "${sids[$i]}" "$name" "${prompts[$i]}" "${rids[$i]}"
     opened=$((opened + 1))
     # The next tabs land after the active one and inherit its group, so grouping the first is enough.
     if [ "$i" = 0 ] && [ "$palette" = 1 ] && [ -n "$group" ] && [ ${#names[@]} -ge 2 ]; then
-      palette_group "$group" || echo "warp-tab: Warp lost the focus, the group was not created" >&2
+      palette_group "$group" || echo "warp-tab: the group was not created" >&2
     fi
   done
 fi

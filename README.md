@@ -9,7 +9,8 @@ warp-orchestrator/        entry skill: checks Warp, routes, reads the registry
 │   ├── warp-open/        one session, one task, or a list
 │   ├── warp-umbrella/    one session per open subtask of an umbrella
 │   └── warp-resume/      find and reopen a session
-├── bin/                  warp-check, warp-tab, warp-name, warp-sessions, warp-opened, warp-alerts
+├── bin/                  warp-check, warp-tab, warp-name, warp-sessions, warp-opened, warp-alerts,
+│                         warp-orchestrator
 ├── hooks/
 │   ├── session-start     tells the agent when Warp is not available
 │   └── agent-event       ✅ / 🔔 in the tab title and an optional sound
@@ -40,8 +41,11 @@ Warp config that runs it:
   Warp only creates tab groups from its UI or from a launch config, and a launch config link always
   opens a new window, so each group gets its own window.
 
-- `--palette`: a native group in the current window, created by typing in Warp's command palette
-  with `xdotool`, as in gr's `claude-tab`. It is the only option that controls the screen.
+- `--keys` (or `GROUP_MODE=keys`): a native group in the current window. `xdotool` presses the
+  Warp shortcut of "Create tab group from active or selected tab(s)" (set it once in Settings >
+  Keyboard shortcuts) and types the name. It is the only option that controls the screen. gr's
+  `claude-tab` searches the command palette instead; a slow filter there can pick a file and type
+  the group name into it.
 
 Configs are deleted 15 seconds later.
 
@@ -53,6 +57,6 @@ Configs are deleted 15 seconds later.
 `~/.local/state/warp-orchestrator/state.md`. `install.sh` links it into `~/.claude/agents`.
 
 ```bash
-claude --agent warp-orchestrator
+warp-orchestrator        # claude --agent warp-orchestrator --name Orquestador
 ``` For Claude it
 passes `--session-id`, so the registry knows the id of every new session.

@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# Start the coordinator: Claude with the warp-orchestrator agent, named after ORCHESTRATOR_NAME
+# (config) so its tab is easy to find. Extra arguments go to claude.
+set -euo pipefail
+
+ORCHESTRATOR_NAME=Orquestador
+config="${XDG_CONFIG_HOME:-$HOME/.config}/warp-orchestrator/config"
+# shellcheck source=/dev/null
+[ -f "$config" ] && . "$config"
+
+exec claude --agent warp-orchestrator --name "$ORCHESTRATOR_NAME" "$@"
