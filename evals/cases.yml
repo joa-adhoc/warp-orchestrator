@@ -1,0 +1,47 @@
+# Each case: what the user says, where the agent runs, and what the answer must and must not do.
+# Run with --dry-run in warp-tab so no tab opens and no quota is spent.
+
+- id: open-task
+  setup: inside Warp; task 78420 exists in Odoo
+  prompt: "abrí una sesión para la 78420"
+  must:
+    - runs warp-check first
+    - reads the task name from Odoo
+    - calls warp-tab once with a name that starts with "78420" and the read-only task prompt
+  must_not:
+    - uses -g for a single tab
+    - writes to Odoo
+
+- id: umbrella
+  setup: inside Warp; umbrella 78564 has one open subtask (78420)
+  prompt: "una sesión por subtarea de la 78564"
+  must:
+    - loads warp-umbrella
+    - filters subtasks by state outside 1_done and 1_canceled
+    - opens one tab per open subtask, with the umbrella id in the prompt
+  must_not:
+    - opens a tab for the umbrella itself
+
+- id: too-many
+  setup: inside Warp; the user lists 8 PRs
+  prompt: "abrí una sesión por cada uno de estos 8 PRs: ..."
+  must:
+    - shows the list of 8 tabs and asks before opening
+  must_not:
+    - calls warp-tab before the user answers
+
+- id: resume
+  setup: inside Warp; a Claude session titled "77768 ..." with 300000 context tokens
+  prompt: "retomá la sesión de la 77768"
+  must:
+    - runs warp-sessions 77768
+    - opens it with -r <id>, -d <its cwd> and /compact as the prompt
+    - reports the context tokens
+
+- id: not-warp
+  setup: TERM_PROGRAM is not WarpTerminal
+  prompt: "abrí una sesión nueva"
+  must:
+    - says Warp is not available and quotes the reason from warp-check
+  must_not:
+    - opens a terminal or a session another way

@@ -1,0 +1,55 @@
+#!/usr/bin/env bash
+# Stop / Notification hook: marks the Warp tab with ✅ (done) or 🔔 (needs you) and, if enabled,
+# plays a sound. Usage from a hook: agent-event done|attention   (hook JSON on stdin)
+set -u
+
+event="${1:-done}"
+input=""
+[ -t 0 ] || input="$(cat)"
+
+[ "${TERM_PROGRAM:-}" = WarpTerminal ] || exit 0
+command -v jq >/dev/null || exit 0
+
+# A Stop hook that blocked and re-ran must not mark the tab twice.
+[ "$(jq -r '.stop_hook_active // false' <<<"$input" 2>/dev/null)" = true ] && exit 0
+
+config="${XDG_CONFIG_HOME:-$HOME/.config}/warp-orchestrator/config"
+SOUND=off
+SOUND_DONE=/usr/share/sounds/freedesktop/stereo/complete.oga
+SOUND_ATTENTION=/usr/share/sounds/freedesktop/stereo/message-new-instant.oga
+# shellcheck source=/dev/null
+[ -f "$config" ] && . "$config"
+
+transcript="$(jq -r '.transcript_path // empty' <<<"$input" 2>/dev/null)"
+cwd="$(jq -r '.cwd // empty' <<<"$input" 2>/dev/null)"
+name=""
+if [ -n "$transcript" ] && [ -f "$transcript" ]; then
+  # The session name (claude --name or /rename) is the last custom-title entry.
+  name="$(tac "$transcript" | grep -m1 -o '"customTitle":"[^"]*"' | cut -d'"' -f4)"
+fi
+[ -n "$name" ] || name="$(basename "${cwd:-$PWD}")"
+
+case "$event" in
+  done) mark="✅"; sound="$SOUND_DONE" ;;
+  attention) mark="🔔"; sound="$SOUND_ATTENTION" ;;
+  *) exit 0 ;;
+esac
+
+if [ "$SOUND" = on ] && [ -f "$sound" ]; then
+  for player in pw-play paplay; do
+    if command -v "$player" >/dev/null; then
+      ("$player" "$sound" >/dev/null 2>&1 &)
+      break
+    fi
+  done
+fi
+
+seq="$(printf '\033]2;%s %s\007' "$mark" "$name")"
+# Claude Code 2.1.141+ writes `terminalSequence` to the tab itself; hooks of other runtimes
+# may have no JSON channel, so fall back to the controlling terminal.
+if [ -n "${CLAUDE_CODE_VERSION:-}" ]; then
+  jq -nc --arg seq "$seq" '{terminalSequence: $seq}'
+else
+  printf '%s' "$seq" > /dev/tty 2>/dev/null || true
+fi
+exit 0

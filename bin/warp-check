@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+# Exit 0 when this shell can open Warp tabs. Otherwise print one reason per line and exit 1.
+# Also prints the tab_configs dir and URI scheme on success, as "key=value" lines.
+set -u
+
+reasons=()
+[ "$(uname -s)" = Linux ] || reasons+=("not-linux: $(uname -s)")
+[ "${TERM_PROGRAM:-}" = WarpTerminal ] || reasons+=("not-warp: TERM_PROGRAM=${TERM_PROGRAM:-unset}")
+command -v xdg-open >/dev/null || reasons+=("missing: xdg-open")
+
+if [[ "${WARP_CLIENT_VERSION:-}" == *preview* ]]; then
+  dir="${XDG_DATA_HOME:-$HOME/.local/share}/warp-terminal-preview/tab_configs"
+  scheme="warppreview"
+else
+  dir="${XDG_DATA_HOME:-$HOME/.local/share}/warp-terminal/tab_configs"
+  scheme="warp"
+fi
+
+if [ ${#reasons[@]} -gt 0 ]; then
+  printf '%s\n' "${reasons[@]}"
+  exit 1
+fi
+echo "tab_configs=$dir"
+echo "scheme=$scheme"

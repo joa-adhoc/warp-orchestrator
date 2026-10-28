@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+# Configure the tab alerts of warp-orchestrator.
+#   warp-alerts                 show the current config
+#   warp-alerts sound on|off    play a sound when a session finishes or needs you
+#   warp-alerts test            play both sounds
+set -euo pipefail
+
+config="${XDG_CONFIG_HOME:-$HOME/.config}/warp-orchestrator/config"
+mkdir -p "$(dirname "$config")"
+[ -f "$config" ] || cat > "$config" <<'EOF'
+SOUND=off
+SOUND_DONE=/usr/share/sounds/freedesktop/stereo/complete.oga
+SOUND_ATTENTION=/usr/share/sounds/freedesktop/stereo/message-new-instant.oga
+EOF
+
+case "${1:-show}" in
+  show) cat "$config" ;;
+  sound)
+    case "${2:-}" in on|off) ;; *) echo "usage: warp-alerts sound on|off" >&2; exit 2 ;; esac
+    sed -i "s/^SOUND=.*/SOUND=$2/" "$config"
+    echo "SOUND=$2"
+    ;;
+  test)
+    # shellcheck source=/dev/null
+    . "$config"
+    player="$(command -v pw-play || command -v paplay)"
+    for f in "$SOUND_DONE" "$SOUND_ATTENTION"; do echo "playing $f"; "$player" "$f"; done
+    ;;
+  *) sed -n '2,5p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;;
+esac

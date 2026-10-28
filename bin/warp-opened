@@ -1,0 +1,44 @@
+#!/usr/bin/env python3
+"""List the tabs warp-tab opened, newest first, from its registry.
+
+  warp-opened [--days N] [--group TEXT]
+
+One tab-separated line per tab, no header:
+  opened_at  runtime  session_id  group  name  cwd
+"""
+import argparse
+import json
+import os
+import time
+
+PATH = os.path.join(os.environ.get("XDG_STATE_HOME") or os.path.expanduser("~/.local/state"),
+                    "warp-orchestrator", "sessions.jsonl")
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--days", type=float, default=1)
+    ap.add_argument("--group", default="")
+    args = ap.parse_args()
+    if not os.path.exists(PATH):
+        return
+    since = time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(time.time() - args.days * 86400))
+    rows = []
+    with open(PATH) as f:
+        for line in f:
+            try:
+                r = json.loads(line)
+            except ValueError:
+                continue
+            if r.get("ts", "")[:19] < since:
+                continue
+            if args.group and args.group.lower() not in (r.get("group") or "").lower():
+                continue
+            rows.append(r)
+    for r in reversed(rows):
+        print("\t".join([r["ts"][:16].replace("T", " "), r.get("runtime", ""), r.get("session_id") or "-",
+                         r.get("group") or "-", r.get("name") or "<empty>", r.get("cwd", "")]))
+
+
+if __name__ == "__main__":
+    main()

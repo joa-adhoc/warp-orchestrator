@@ -1,0 +1,44 @@
+#!/usr/bin/env python3
+"""Build short tab and group names from an Odoo task id and name.
+
+  warp-name 78420 "Skill encarar: borrador para compartir"   -> 78420 Skill encarar
+  warp-name --group 78564 "Dev Tips en la era IA"            -> UM 78564 · Dev Tips en la era IA
+  warp-name "Revisar logs de Railway"                        -> Revisar logs de Railway
+"""
+import re
+import sys
+
+MAX_WORDS = 6
+MAX_CHARS = 32
+
+
+def shorten(text):
+    text = re.sub(r"^\s*(\[[^\]]*\]\s*)+", "", text)
+    text = re.split(r":| - | — |\(|,", text, maxsplit=1)[0].strip()
+    words = text.split()[:MAX_WORDS]
+    while words and len(" ".join(words)) > MAX_CHARS:
+        words.pop()
+    return " ".join(words) or text[:MAX_CHARS]
+
+
+def main(argv):
+    group = argv[:1] == ["--group"]
+    if group:
+        argv = argv[1:]
+    if not argv:
+        sys.exit(__doc__.strip())
+    if len(argv) >= 2 and argv[0].isdigit():
+        task_id, name = argv[0], " ".join(argv[1:])
+    else:
+        task_id, name = None, " ".join(argv)
+    short = shorten(name)
+    if group and task_id:
+        print(f"UM {task_id} · {short}")
+    elif task_id:
+        print(f"{task_id} {short}")
+    else:
+        print(short)
+
+
+if __name__ == "__main__":
+    main(sys.argv[1:])

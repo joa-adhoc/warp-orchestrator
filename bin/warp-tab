@@ -1,0 +1,179 @@
+#!/usr/bin/env bash
+# Open one Warp tab per spec, each running an agent CLI. See usage below.
+set -euo pipefail
+
+usage() {
+  cat <<'EOF'
+usage: warp-tab [-d DIR] [-a claude|codex|gemini] [-g GROUP] [-c COLOR] [-r SESSION_ID] [--dry-run] ["NAME::PROMPT" ...]
+
+  -d DIR         working directory of the new tabs (default: current dir)
+  -a RUNTIME     agent CLI to run (default: claude)
+  -g GROUP       group label: every tab gets the same color and the group is saved in the registry
+  -c COLOR       tab color: red green yellow blue magenta cyan (default: derived from GROUP)
+  -r SESSION_ID  resume that session instead of starting a new one (one spec at most)
+  --focus        stay on the last new tab (default: go back to the tab that ran warp-tab)
+  --dry-run      print the tab configs instead of opening them
+
+No spec opens one empty session. A spec is "NAME::PROMPT"; either side may be empty.
+Names that start with a task id ("78420 Skill encarar: borrador ...") are shortened with warp-name.
+EOF
+}
+
+dir="$PWD"; runtime=claude; group=""; color=""; resume=""; dry=0; focus=0
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --focus) focus=1; shift ;;
+    -d) dir="$2"; shift 2 ;;
+    -a) runtime="$2"; shift 2 ;;
+    -g) group="$2"; shift 2 ;;
+    -c) color="$2"; shift 2 ;;
+    -r) resume="$2"; shift 2 ;;
+    --dry-run) dry=1; shift ;;
+    -h|--help) usage; exit 0 ;;
+    --) shift; break ;;
+    -*) echo "unknown option: $1" >&2; usage >&2; exit 2 ;;
+    *) break ;;
+  esac
+done
+specs=("$@")
+[ ${#specs[@]} -gt 0 ] || specs=("::")
+
+case "$runtime" in claude|codex|gemini) ;; *) echo "unknown runtime: $runtime" >&2; exit 2 ;; esac
+if [ -n "$resume" ] && [ ${#specs[@]} -gt 1 ]; then
+  echo "-r takes one spec at most" >&2; exit 2
+fi
+if [ "$runtime" = gemini ] && [ -n "$resume" ]; then
+  echo "resume is not supported for gemini (it resumes by per-project index, not by id)" >&2; exit 2
+fi
+command -v "$runtime" >/dev/null || { echo "missing: $runtime" >&2; exit 1; }
+dir="$(cd "$dir" && pwd)"
+
+if ! check="$(warp-check)"; then
+  [ "$dry" = 1 ] || { echo "$check" >&2; exit 1; }
+  check="tab_configs=/dev/null
+scheme=warp"
+fi
+config_dir="$(sed -n 's/^tab_configs=//p' <<<"$check")"
+scheme="$(sed -n 's/^scheme=//p' <<<"$check")"
+
+colors=(red green yellow blue magenta cyan)
+if [ -z "$color" ] && [ -n "$group" ]; then
+  color="${colors[$(( $(cksum <<<"$group" | cut -d' ' -f1) % ${#colors[@]} ))]}"
+fi
+if [[ "$group" =~ ^UM\ [0-9]+\  ]] && [ ${#group} -gt 40 ]; then
+  group="$(warp-name --group "$(cut -d' ' -f2 <<<"$group")" "$(cut -d' ' -f4- <<<"$group")")"
+fi
+
+toml_str() {
+  local s="$1"
+  s="${s//\\/\\\\}"; s="${s//\"/\\\"}"
+  printf '"%s"' "$s"
+}
+
+agent_cmd() {
+  local name="$1" prompt="$2" sid="$3" args=()
+  case "$runtime" in
+    claude)
+      args=(claude)
+      if [ -n "$resume" ]; then args+=(--resume "$resume"); else args+=(--session-id "$sid"); fi
+      [ -z "$name" ] || args+=(--name "$name")
+      [ -z "$prompt" ] || args+=("$prompt")
+      ;;
+    codex)
+      if [ -n "$resume" ]; then args=(codex resume "$resume"); else args=(codex); fi
+      [ -z "$prompt" ] || args+=("$prompt")
+      ;;
+    gemini)
+      args=(gemini)
+      [ -z "$prompt" ] || args+=(-i "$prompt")
+      ;;
+  esac
+  local out
+  printf -v out '%q ' "${args[@]}"
+  printf '%s' "${out% }"
+}
+
+state_dir="${XDG_STATE_HOME:-$HOME/.local/state}/warp-orchestrator"
+launch_dir="$state_dir/launch"
+mkdir -p "$state_dir" "$launch_dir"
+[ "$dry" = 1 ] || mkdir -p "$config_dir"
+
+prev_win=""
+if [ "$dry" = 0 ] && command -v xprop >/dev/null; then
+  prev_win="$(xprop -root _NET_ACTIVE_WINDOW 2>/dev/null | grep -o '0x[0-9a-f]*' || true)"
+fi
+
+opened=0
+for spec in "${specs[@]}"; do
+  name="${spec%%::*}"; prompt=""
+  [[ "$spec" == *::* ]] && prompt="${spec#*::}"
+  if [[ "$name" =~ ^[0-9]+\  ]] && [ ${#name} -gt 32 ]; then
+    name="$(warp-name "${name%% *}" "${name#* }")"
+  fi
+  sid="$resume"
+  if [ "$runtime" = claude ] && [ -z "$sid" ]; then sid="$(cat /proc/sys/kernel/random/uuid)"; fi
+
+  stem="warp_orchestrator_$(date +%s%N)"
+  toml="name = $(toml_str "${name:-$runtime}")"$'\n'
+  # A fixed title wins over the terminal title, so Claude (which titles the tab from --name) and the
+  # ✅/🔔 marks of hooks/agent-event would never show. Other runtimes get the fixed title.
+  if [ -n "$name" ] && [ "$runtime" != claude ]; then
+    toml+="title = $(toml_str "$name")"$'\n'
+  fi
+  [ -z "$color" ] || toml+="color = $(toml_str "$color")"$'\n'
+  toml+=$'\n[[panes]]\nid = "agent"\ntype = "terminal"\n'
+  toml+="directory = $(toml_str "$dir")"$'\n'
+  # Warp types the command into the new tab, so a keystroke there can land at its end. The tab runs
+  # a short launcher that ignores its arguments; the real command, with its quoting, lives inside.
+  launcher="$launch_dir/$stem.sh"
+  toml+="commands = [$(toml_str "bash $launcher")]"$'\n'
+  script=$'#!/usr/bin/env bash\nrm -f -- "$0"\nexec '"$(agent_cmd "$name" "$prompt" "$sid")"$'\n'
+
+  if [ "$dry" = 1 ]; then
+    echo "# $stem.toml → $scheme://tab_config/$stem"
+    echo "$toml"
+    echo "# $launcher"
+    echo "$script"
+    continue
+  fi
+
+  printf '%s' "$script" > "$launcher"
+  printf '%s' "$toml" > "$config_dir/$stem.toml"
+  # Warp picks up new tab configs with a file watcher; give it a moment before the deeplink.
+  sleep 1
+  xdg-open "$scheme://tab_config/$stem" >/dev/null 2>&1
+  # The config only has to live until Warp reads it; otherwise it piles up in the "+" menu.
+  (sleep 15; rm -f "$config_dir/$stem.toml") >/dev/null 2>&1 &
+  disown
+
+  python3 -I - "$state_dir/sessions.jsonl" "$runtime" "$sid" "$name" "$group" "$color" "$dir" "$prompt" "$resume" <<'PY'
+import json, sys, time
+path, runtime, sid, name, group, color, cwd, prompt, resume = sys.argv[1:]
+row = {"ts": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "runtime": runtime, "session_id": sid or None,
+       "name": name, "group": group or None, "color": color or None, "cwd": cwd,
+       "prompt": prompt[:200], "resumed": bool(resume)}
+with open(path, "a") as f:
+    f.write(json.dumps(row, ensure_ascii=False) + "\n")
+PY
+  opened=$((opened + 1))
+  echo "opened: ${name:-<empty>} (${runtime}${sid:+ $sid})"
+done
+
+[ "$dry" = 1 ] && exit 0
+
+if [ "$focus" = 0 ] && [ "$opened" -gt 0 ]; then
+  sleep 1
+  # Warp sets WARP_FOCUS_URL in every session; opening it brings that tab back to the front.
+  if [ -n "${WARP_FOCUS_URL:-}" ]; then
+    xdg-open "$WARP_FOCUS_URL" >/dev/null 2>&1
+  fi
+  # The deeplinks also raise the Warp window; give the focus back to the app that had it.
+  if [ -n "$prev_win" ] && ! xprop -id "$prev_win" WM_CLASS 2>/dev/null | grep -q dev.warp.Warp; then
+    if command -v xdotool >/dev/null; then
+      sleep 0.5
+      xdotool windowactivate "$prev_win" 2>/dev/null || true
+    fi
+  fi
+fi
+
+echo "total: $opened${group:+, group: $group}${color:+, color: $color}"

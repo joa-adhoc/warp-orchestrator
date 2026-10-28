@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# SessionStart hook: silent inside Warp; outside it, tells the agent the warp-* skills cannot run here.
+# Reads nothing from stdin, so the same script works for any runtime that injects stdout as context.
+[ -t 0 ] || cat >/dev/null
+command -v warp-check >/dev/null || exit 0
+if ! reasons="$(warp-check)"; then
+  echo "warp-orchestrator: not available in this session ($(tr '\n' ';' <<<"$reasons" | sed 's/;$//')). Do not open Warp tabs; if asked, say why."
+fi
+exit 0
