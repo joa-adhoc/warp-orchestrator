@@ -10,8 +10,8 @@ warp-orchestrator/        entry skill: checks Warp, routes, reads the registry
 │   ├── umbrella.md
 │   └── resume.md
 ├── agents/               warp-orchestrator.md, the coordinator agent
-├── bin/                  warp-check, warp-tab, warp-name, warp-groups, warp-sessions, warp-opened,
-│                         warp-alerts, warp-orchestrator
+├── bin/                  warp-check, warp-tab, warp-name, warp-groups, warp-shortcut, warp-sessions,
+│                         warp-opened, warp-alerts, warp-orchestrator
 ├── hooks/
 │   ├── session-start     tells the agent when Warp is not available
 │   └── agent-event       ✅ / 🔔 in the tab title and an optional sound
@@ -37,16 +37,16 @@ Linux, Warp (stable or preview), `xdg-open`, `python3`, and the agent CLI the ta
 `warp-tab` writes a launcher script with the agent command (it deletes itself when it runs) and a
 Warp config that runs it:
 
-- One tab, or `--same-window`: a tab config (TOML), opened with `warp://tab_config/<name>`.
-- A group (`-g`) of 2+ tabs: a launch config with `tab_groups`, opened with `warp://launch/<name>`.
-  Warp only creates tab groups from its UI or from a launch config, and a launch config link always
-  opens a new window, so each group gets its own window.
+Every tab is a tab config (TOML), opened with `warp://tab_config/<name>` in the coordinator's
+window.
 
-- `--keys` (or `GROUP_MODE=keys`): a native group in the current window. `xdotool` presses the
-  Warp shortcut of "Create tab group from active or selected tab(s)" (set it once in Settings >
-  Keyboard shortcuts) and types the name. It is the only option that controls the screen. gr's
-  `claude-tab` searches the command palette instead; a slow filter there can pick a file and type
-  the group name into it.
+- A new group (`-g`, 2+ tabs): Warp creates tab groups only from its UI, so `xdotool` presses the
+  Warp shortcut of "Create tab group from active or selected tab(s)" and types the name. It is the
+  only step that controls the screen. `warp-shortcut` binds the key (`ctrl-alt-shift-G` by
+  default); Warp loads `keybindings.yaml` only at launch, so until a restart the user sets the
+  same key in Settings > Keyboard shortcuts. gr's `claude-tab` searches the command palette
+  instead; a slow filter there can pick a file and type the group name into it.
+  `GROUP_MODE=inherit` skips the keys: color only.
 
 - A group already open in Warp: `warp-groups` reads Warp's state database
   (`~/.local/state/warp-terminal/warp.sqlite`, read only), `warp-tab` opens the group's last tab

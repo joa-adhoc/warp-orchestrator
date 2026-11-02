@@ -1,0 +1,166 @@
+#!/usr/bin/env python3
+"""The Warp shortcut that warp-tab presses to make a tab group.
+
+  warp-shortcut              status, one line:
+                               live KEY        Warp uses it now
+                               pending KEY     in keybindings.yaml, but Warp started before it was
+                                               written: it works after a Warp restart, or at once
+                                               if the user sets it in Settings > Keyboard shortcuts
+                               missing         no shortcut for the action
+                               taken KEY BY    KEY already does BY (a Warp action or a desktop one)
+  warp-shortcut install [KEY]  bind KEY (default ctrl-alt-shift-G) unless it is taken; prints the
+                               new status. Exit 3 if taken.
+  warp-shortcut xdotool        the xdotool form of the key, only when live (exit 1 otherwise)
+
+Warp reads keybindings.yaml only at launch, but a shortcut set in its Settings applies at once and
+Warp rewrites the file. So the file changed after install means the user (or Warp) set it live.
+"""
+import os
+import re
+import subprocess
+import sys
+import time
+
+ACTION = "workspace:new_tab_group_from_active_or_selected_tabs"
+LABEL = "Create tab group from active or selected tab(s)"
+DEFAULT = "ctrl-alt-shift-G"
+CONFIG = os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config")
+STATE = os.environ.get("XDG_STATE_HOME") or os.path.expanduser("~/.local/state")
+FILE = os.path.join(CONFIG, "warp-terminal", "keybindings.yaml")
+MARK = os.path.join(STATE, "warp-orchestrator", "keybindings.mark")
+MODS = {"ctrl": "ctrl", "control": "ctrl", "primary": "ctrl", "alt": "alt", "shift": "shift",
+        "cmd": "super", "meta": "super", "super": "super"}
+
+
+def canon(mods, key):
+    return frozenset(mods), key.lower()
+
+
+def parse_warp(key):
+    parts = key.split("-")
+    mods = {MODS[p.lower()] for p in parts[:-1] if p.lower() in MODS}
+    last = parts[-1]
+    if len(last) == 1 and last.isalpha() and last.isupper():
+        mods.add("shift")
+    return canon(mods, last)
+
+
+def parse_gnome(accel):
+    mods = {MODS[m.lower()] for m in re.findall(r"<(\w+)>", accel) if m.lower() in MODS}
+    return canon(mods, re.sub(r"<\w+>", "", accel))
+
+
+def bindings():
+    out = {}
+    try:
+        with open(FILE) as f:
+            for line in f:
+                m = re.match(r'\s*"?([\w:]+)"?\s*:\s*"?([^"\s#]+)', line)
+                if m:
+                    out[m.group(1)] = m.group(2)
+    except OSError:
+        pass
+    return out
+
+
+def desktop_owner(key):
+    want = parse_warp(key)
+    try:
+        out = subprocess.run(["gsettings", "list-recursively"], capture_output=True, text=True,
+                             timeout=5).stdout
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    for line in out.splitlines():
+        schema, name, value = (line.split(" ", 2) + ["", ""])[:3]
+        if "keybinding" not in schema or "<" not in value:
+            continue
+        for accel in re.findall(r"'([^']+)'", value):
+            if parse_gnome(accel) == want:
+                return f"{schema}.{name}"
+    return None
+
+
+def taken_by(key, current):
+    want = parse_warp(key)
+    for action, other in current.items():
+        if action != ACTION and other.lower() != "none" and parse_warp(other) == want:
+            return action
+    return desktop_owner(key)
+
+
+def warp_started():
+    try:
+        pid = subprocess.run(["pgrep", "-o", "-x", "warp"], capture_output=True, text=True).stdout.split()
+        pid = pid or subprocess.run(["pgrep", "-o", "-f", "warpdotdev/warp-terminal/warp"],
+                                    capture_output=True, text=True).stdout.split()
+        etimes = subprocess.run(["ps", "-o", "etimes=", "-p", pid[0]], capture_output=True,
+                                text=True).stdout.strip()
+        return time.time() - int(etimes)
+    except (IndexError, ValueError, OSError):
+        return None
+
+
+def status():
+    current = bindings()
+    key = current.get(ACTION)
+    if not key or key.lower() == "none":
+        return "missing", None
+    other = taken_by(key, current)
+    if other:
+        return f"taken {key} {other}", key
+    mtime = int(os.stat(FILE).st_mtime)
+    try:
+        with open(MARK) as f:
+            ours = int(f.read().strip())
+    except (OSError, ValueError):
+        ours = None
+    started = warp_started()
+    if ours == mtime and (started is None or started < mtime):
+        return f"pending {key}", key
+    return f"live {key}", key
+
+
+def install(key):
+    current = bindings()
+    other = taken_by(key, current)
+    if other:
+        print(f"taken {key} {other}")
+        sys.exit(3)
+    lines = []
+    if os.path.exists(FILE):
+        with open(FILE) as f:
+            lines = [ln for ln in f if not re.match(rf'\s*"?{re.escape(ACTION)}"?\s*:', ln)]
+    lines.append(f'"{ACTION}": {key}\n')
+    os.makedirs(os.path.dirname(FILE), exist_ok=True)
+    with open(FILE, "w") as f:
+        f.writelines(lines)
+    os.makedirs(os.path.dirname(MARK), exist_ok=True)
+    with open(MARK, "w") as f:
+        f.write(str(int(os.stat(FILE).st_mtime)))
+    print(status()[0])
+
+
+def xdotool_form(key):
+    mods, last = parse_warp(key)
+    order = [m for m in ("ctrl", "alt", "shift", "super") if m in mods]
+    return "+".join(order + [last])
+
+
+def main(argv):
+    if argv[:1] in (["-h"], ["--help"]):
+        print(__doc__.strip())
+    elif not argv:
+        print(status()[0])
+    elif argv[0] == "install":
+        install(argv[1] if len(argv) > 1 else DEFAULT)
+    elif argv[0] == "xdotool":
+        state, key = status()
+        if not state.startswith("live"):
+            sys.exit(1)
+        print(xdotool_form(key))
+    else:
+        sys.exit(__doc__.strip())
+
+
+if __name__ == "__main__":
+    main(sys.argv[1:])

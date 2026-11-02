@@ -4,7 +4,7 @@ set -euo pipefail
 
 usage() {
   cat <<'EOF'
-usage: warp-tab [-d DIR] [-a claude|codex|gemini] [-g GROUP [--keys|--window|--inherit]] [-c COLOR] [-r SESSION_ID]... [--agent NAME] [--focus] [--dry-run] ["NAME::PROMPT" ...]
+usage: warp-tab [-d DIR] [-a claude|codex|gemini] [-g GROUP [--keys|--inherit]] [-c COLOR] [-r SESSION_ID]... [--agent NAME] [--focus] [--dry-run] ["NAME::PROMPT" ...]
 
   -d DIR         working directory of the new tabs (default: current dir)
   -a RUNTIME     agent CLI to run (default: claude)
@@ -13,11 +13,11 @@ usage: warp-tab [-d DIR] [-a claude|codex|gemini] [-g GROUP [--keys|--window|--i
                  tabs get GROUP's color and join the Warp group of the active tab, if it has one
   -c COLOR       tab or group color: red green yellow blue magenta cyan (default: a color no open
                  group uses, or the open group's color)
-  --window       with -g and 2+ specs, open them in a new Warp window as a native group named GROUP
-  --keys         with -g and 2+ specs, create a native group named GROUP in the current window:
-                 xdotool (X11) presses the Warp shortcut of "Create tab group from active or
-                 selected tab(s)" and types the name. Takes over the keyboard for a few seconds;
-                 if Warp loses the focus or has no shortcut for it, the group is not created
+  --keys         with -g and 2+ specs, create a native group named GROUP in the current window
+                 (the default): xdotool (X11) presses the Warp shortcut of "Create tab group from
+                 active or selected tab(s)" (see warp-shortcut) and types the name. Takes over the
+                 keyboard for a few seconds; if Warp loses the focus or the shortcut is not live,
+                 the group is not created
   --agent NAME   start Claude with --agent NAME (claude only)
   -r SESSION_ID  resume that session instead of starting a new one. Repeat it to resume several:
                  the Nth -r goes with the Nth spec (with no specs, one empty spec per -r)
@@ -30,14 +30,13 @@ Names that start with a task id ("78420 Skill encarar: borrador ...") are shorte
 EOF
 }
 
-dir="$PWD"; runtime=claude; group=""; color=""; resumes=(); dry=0; focus=0; new_window=0; palette=0; inherit=0
+dir="$PWD"; runtime=claude; group=""; color=""; resumes=(); dry=0; focus=0; palette=0; inherit=0
 agent=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --focus) focus=1; shift ;;
     --keys) palette=1; shift ;;
     --agent) agent="$2"; shift 2 ;;
-    --window) new_window=1; shift ;;
     -d) dir="$2"; shift 2 ;;
     -a) runtime="$2"; shift 2 ;;
     -g) group="$2"; shift 2 ;;
@@ -62,11 +61,11 @@ fi
 
 # With -g and 2+ tabs, how the group is made: the flag wins, then GROUP_MODE in the config.
 config_file="${XDG_CONFIG_HOME:-$HOME/.config}/warp-orchestrator/config"
-GROUP_MODE=inherit
+GROUP_MODE=keys
 # shellcheck source=/dev/null
 [ -f "$config_file" ] && . "$config_file"
-if [ "$palette" = 0 ] && [ "$new_window" = 0 ] && [ "$inherit" = 0 ]; then
-  case "$GROUP_MODE" in keys) palette=1 ;; window) new_window=1 ;; esac
+if [ "$palette" = 0 ] && [ "$inherit" = 0 ] && [ "$GROUP_MODE" = keys ]; then
+  palette=1
 fi
 if [ "$palette" = 1 ] && ! command -v xdotool >/dev/null; then
   echo "warp-tab: --keys needs xdotool (X11); opening without a native group" >&2
@@ -104,7 +103,7 @@ if [ -n "$group" ] && live="$(warp-groups --find "$group" 2>/dev/null)"; then
   if [ -n "$join_url" ]; then
     group="$live_name"
     [ -n "$color" ] || [ "$live_color" = - ] || color="$live_color"
-    palette=0; new_window=0
+    palette=0
   fi
 fi
 
@@ -208,58 +207,16 @@ wait_tab_ready() {
   done
 }
 
-# The xdotool form of the Warp shortcut bound to the group action, from the user's keybindings.
-# gr's claude-tab searched the command palette instead, but a slow filter can pick another entry
-# (a file, for example) and the group name then lands inside it. A shortcut runs only this action.
-# Warp reads keybindings.yaml only at launch, but a shortcut set in its Settings applies at once
-# (and Warp rewrites the file). If the shortcut is not live, the name typed afterwards would land
-# in the new tab's prompt and be sent to the agent. install.sh saves the file's mtime when it adds
-# the shortcut: still that mtime and Warp started before it means Warp has not loaded it.
-shortcut_live() {
-  local file="$1" mark="$state_dir/keybindings.mark" mtime win pid started
-  [ -f "$mark" ] || return 0
-  mtime="$(stat -c %Y "$file")"
-  [ "$mtime" = "$(cat "$mark")" ] || return 0
-  win="$(xdotool search --classname dev.warp.Warp 2>/dev/null | head -1)"
-  [ -n "$win" ] || return 1
-  pid="$(xdotool getwindowpid "$win" 2>/dev/null)" || return 1
-  started=$(( $(date +%s) - $(ps -o etimes= -p "$pid" | tr -d ' ') ))
-  [ "$started" -gt "$mtime" ]
-}
-
-group_key() {
-  local file="${XDG_CONFIG_HOME:-$HOME/.config}/warp-terminal/keybindings.yaml" raw
-  [ -f "$file" ] || return 1
-  raw="$(sed -n 's/^[[:space:]]*"\{0,1\}workspace:new_tab_group_from_active_or_selected_tabs"\{0,1\}:[[:space:]]*//p' "$file" \
-    | tr -d "\"' " | head -1)"
-  [ -n "$raw" ] && [ "$raw" != none ] || return 1
-  shortcut_live "$file" || return 2
-  python3 -I - "$raw" <<'KEY'
-import sys
-parts = sys.argv[1].split("-")
-mods = {"ctrl": "ctrl", "alt": "alt", "shift": "shift", "cmd": "super", "meta": "super", "super": "super"}
-keys = [mods[p.lower()] for p in parts[:-1] if p.lower() in mods]
-last = parts[-1]
-if len(last) == 1 and last.isalpha():
-    if last.isupper() and "shift" not in keys:
-        keys.append("shift")
-    last = last.lower()
-print("+".join(keys + [last]))
-KEY
-}
-
 # Group the active tab with the shortcut, then name the group in the rename modal Warp opens right
 # after creating it (WorkspaceAction::RenameTabGroup).
 palette_group() {
-  local key status=0
-  key="$(group_key)" || status=$?
-  case "$status" in
-    0) ;;
-    2) echo "warp-tab: Warp has not loaded the shortcut for 'Create tab group from active or selected tab(s)' yet; restart Warp or set it in Settings > Keyboard shortcuts" >&2
-       return 1 ;;
-    *) echo "warp-tab: Warp has no shortcut for 'Create tab group from active or selected tab(s)'; set one in Settings > Keyboard shortcuts" >&2
-       return 1 ;;
-  esac
+  local key
+  # A shortcut, never Warp's command palette: a slow filter there can pick a file and the group
+  # name lands inside it. If the shortcut is not live, the name would land in the new tab's prompt.
+  if ! key="$(warp-shortcut xdotool)"; then
+    echo "warp-tab: the group shortcut is $(warp-shortcut); run warp-shortcut --help" >&2
+    return 1
+  fi
   wait_tab_ready
   warp_focused || raise_warp
   press key "$key" || return 1
@@ -306,13 +263,6 @@ PY
   echo "opened: ${2:-<empty>} (${runtime}${1:+ $1})"
 }
 
-# Warp creates tab groups only from its UI or from a launch config, and a launch config link always
-# opens a new window. In the current window, new tabs land after the active tab and inherit its group.
-window_mode=0
-[ -n "$group" ] && [ ${#specs[@]} -ge 2 ] && [ "$new_window" = 1 ] && window_mode=1
-launch_configs_dir="$(dirname "$config_dir")/launch_configurations"
-[ "$dry" = 1 ] || mkdir -p "$launch_configs_dir"
-
 names=(); sids=(); prompts=(); launchers=(); rids=()
 for idx in "${!specs[@]}"; do
   spec="${specs[$idx]}"
@@ -339,90 +289,52 @@ for idx in "${!specs[@]}"; do
 done
 
 opened=0
-if [ "$window_mode" = 1 ]; then
+for i in "${!names[@]}"; do
+  name="${names[$i]}"
   stem="warp_orchestrator_$(date +%s%N)"
-  # YAML is a superset of JSON, so json.dumps gives a valid launch config with safe quoting.
-  config="$(python3 -I - "$stem" "$dir" "$group" "$color" "$runtime" "${#names[@]}" "${names[@]}" "${launchers[@]}" <<'PY'
-import json, sys
-stem, cwd, group, color, runtime, count = sys.argv[1:7]
-count = int(count)
-names, launchers = sys.argv[7:7 + count], sys.argv[7 + count:]
-tabs = []
-for name, launcher in zip(names, launchers):
-    tab = {"layout": {"cwd": cwd, "commands": [{"exec": f"bash {launcher}"}]}, "group": 0}
-    # Claude titles the tab from --name; a fixed title would hide that and the hook marks.
-    if name and runtime != "claude":
-        tab["title"] = name
-    tabs.append(tab)
-group_entry = {"name": group}
-if color:
-    group_entry["color"] = color
-print(json.dumps({"name": stem, "active_window_index": 0,
-                  "windows": [{"active_tab_index": 0, "tabs": tabs, "tab_groups": [group_entry]}]},
-                 ensure_ascii=False, indent=2))
-PY
-)"
-  if [ "$dry" = 1 ]; then
-    echo "# $launch_configs_dir/$stem.yaml → $scheme://launch/$stem"
-    echo "$config"
-    exit 0
+  toml="name = $(toml_str "${name:-$runtime}")"$'\n'
+  # A fixed title wins over the terminal title, so Claude (which titles the tab from --name) and
+  # the ✅/🔔 marks of hooks/agent-event would never show. Other runtimes get the fixed title.
+  if [ -n "$name" ] && [ "$runtime" != claude ]; then
+    toml+="title = $(toml_str "$name")"$'\n'
   fi
-  printf '%s\n' "$config" > "$launch_configs_dir/$stem.yaml"
-  xdg-open "$scheme://launch/$stem" >/dev/null 2>&1
-  (sleep 15; rm -f "$launch_configs_dir/$stem.yaml") >/dev/null 2>&1 &
+  [ -z "$color" ] || toml+="color = $(toml_str "$color")"$'\n'
+  toml+=$'\n[[panes]]\nid = "agent"\ntype = "terminal"\n'
+  toml+="directory = $(toml_str "$dir")"$'\n'
+  toml+="commands = [$(toml_str "bash ${launchers[$i]}")]"$'\n'
+  if [ "$dry" = 1 ]; then
+    echo "# $config_dir/$stem.toml → $scheme://tab_config/$stem"
+    echo "$toml"
+    continue
+  fi
+  printf '%s' "$toml" > "$config_dir/$stem.toml"
+  # Warp picks up new tab configs with a file watcher; give it a moment before the deeplink.
+  sleep 1
+  xdg-open "$scheme://tab_config/$stem" >/dev/null 2>&1
+  # The config only has to live until Warp reads it; otherwise it piles up in the "+" menu.
+  (sleep 15; rm -f "$config_dir/$stem.toml") >/dev/null 2>&1 &
   disown
-  for i in "${!names[@]}"; do
-    register "${sids[$i]}" "${names[$i]}" "${prompts[$i]}" "${rids[$i]}"
-    opened=$((opened + 1))
-  done
-else
-  for i in "${!names[@]}"; do
-    name="${names[$i]}"
-    stem="warp_orchestrator_$(date +%s%N)"
-    toml="name = $(toml_str "${name:-$runtime}")"$'\n'
-    # A fixed title wins over the terminal title, so Claude (which titles the tab from --name) and
-    # the ✅/🔔 marks of hooks/agent-event would never show. Other runtimes get the fixed title.
-    if [ -n "$name" ] && [ "$runtime" != claude ]; then
-      toml+="title = $(toml_str "$name")"$'\n'
-    fi
-    [ -z "$color" ] || toml+="color = $(toml_str "$color")"$'\n'
-    toml+=$'\n[[panes]]\nid = "agent"\ntype = "terminal"\n'
-    toml+="directory = $(toml_str "$dir")"$'\n'
-    toml+="commands = [$(toml_str "bash ${launchers[$i]}")]"$'\n'
-    if [ "$dry" = 1 ]; then
-      echo "# $config_dir/$stem.toml → $scheme://tab_config/$stem"
-      echo "$toml"
-      continue
-    fi
-    printf '%s' "$toml" > "$config_dir/$stem.toml"
-    # Warp picks up new tab configs with a file watcher; give it a moment before the deeplink.
-    sleep 1
-    xdg-open "$scheme://tab_config/$stem" >/dev/null 2>&1
-    # The config only has to live until Warp reads it; otherwise it piles up in the "+" menu.
-    (sleep 15; rm -f "$config_dir/$stem.toml") >/dev/null 2>&1 &
-    disown
-    register "${sids[$i]}" "$name" "${prompts[$i]}" "${rids[$i]}"
-    opened=$((opened + 1))
-    # The next tabs land after the active one and inherit its group, so grouping the first is enough.
-    if [ "$i" = 0 ] && [ "$palette" = 1 ] && [ -n "$group" ] && [ ${#names[@]} -ge 2 ]; then
-      if palette_group "$group"; then
-        # Warp gives the new group a color of its own; report and remember that one.
-        for _ in 1 2 3 4 5 6; do
-          if live="$(warp-groups --find "$group" 2>/dev/null)"; then
-            live_color="$(cut -f3 <<<"$live")"
-            if [ "$live_color" != - ] && [ "$live_color" != "$color" ]; then
-              color="$live_color"; remember_color "$group" "$color"
-            fi
-            break
+  register "${sids[$i]}" "$name" "${prompts[$i]}" "${rids[$i]}"
+  opened=$((opened + 1))
+  # The next tabs land after the active one and inherit its group, so grouping the first is enough.
+  if [ "$i" = 0 ] && [ "$palette" = 1 ] && [ -n "$group" ] && [ ${#names[@]} -ge 2 ]; then
+    if palette_group "$group"; then
+      # Warp gives the new group a color of its own; report and remember that one.
+      for _ in 1 2 3 4 5 6; do
+        if live="$(warp-groups --find "$group" 2>/dev/null)"; then
+          live_color="$(cut -f3 <<<"$live")"
+          if [ "$live_color" != - ] && [ "$live_color" != "$color" ]; then
+            color="$live_color"; remember_color "$group" "$color"
           fi
-          sleep 0.5
-        done
-      else
-        echo "warp-tab: the group was not created" >&2
-      fi
+          break
+        fi
+        sleep 0.5
+      done
+    else
+      echo "warp-tab: the group was not created" >&2
     fi
-  done
-fi
+  fi
+done
 
 [ "$dry" = 1 ] && exit 0
 

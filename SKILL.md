@@ -33,7 +33,8 @@ tabs another way. If `warp-check` is not found, tell the user to run
 All are in `PATH`; `--help` prints the full usage.
 
 ```bash
-warp-check                                   # exit 0 inside Warp on Linux
+warp-check                                   # exit 0 inside Warp on Linux; shortcut=<state>
+warp-shortcut [install [KEY]]                # the group shortcut: live, pending, missing, taken
 warp-name 78420 "Skill encarar: borrador"    # → 78420 Skill encarar
 warp-name --group 78564 "Dev Tips en la era IA"  # → 78564 Dev Tips
 warp-groups                                  # groups open in Warp: name, color, tabs, last tab link
@@ -66,20 +67,25 @@ warp-opened [--days N] [--group TEXT] [--open]   # tabs opened by warp-tab, open
   - **Open group:** run `warp-groups` first. If a group with that name or the same leading task
     id is open (the user may have made it by hand), pass its exact name: `warp-tab` brings its
     last tab to the front and the new tabs join it, with its color. No keys are pressed.
-  - **New group:** Warp creates groups only from its UI or from a launch config, so there are
-    three modes. `warp-tab` uses `GROUP_MODE` from `~/.config/warp-orchestrator/config` unless a
-    flag says otherwise; do not pass a flag unless the user asks for a mode. If `warp-check`
-    prints a `warning=` line about it, tell the user before opening. The group is saved in the
-    registry in all of them.
-  - `keys`: a native group in the current window. `xdotool` presses the Warp shortcut of "Create
-    tab group from active or selected tab(s)" and types the name in the rename box Warp opens.
-    Before running it, tell the user not to type for about 10 seconds. It needs that shortcut set
-    in Warp (Settings > Keyboard shortcuts); without it, or if Warp loses the focus, the tabs open
-    without the group. Never search Warp's command palette instead: a slow filter can pick a file
-    and the group name gets typed into it.
-  - `window`: a native group in a new Warp window, from a launch config, with no screen control.
-  - `inherit`: no native group; the tabs get the group's color, land after the active tab and join
-    its Warp group, if it has one.
+  - **New group:** always in the coordinator's window. Warp creates groups only from its UI, so
+    `warp-tab` presses the Warp shortcut of "Create tab group from active or selected tab(s)" with
+    `xdotool` and types the name in the rename box Warp opens. Before running it, tell the user
+    not to type for about 10 seconds. Never search Warp's command palette instead: a slow filter
+    can pick a file and the group name gets typed into it.
+  - **The shortcut:** `warp-check` prints `shortcut=<state>` and, when it is `missing`, binds the
+    default key (`ctrl-alt-shift-G`) if nothing else uses it. Say nothing about it unless you are
+    about to create a new group and the state is not `live`:
+    - `pending <key>`: Warp loads the file only at launch. Tell the user to set it once in Warp,
+      Settings > Keyboard shortcuts, search "Create tab group", key `Ctrl+Alt+Shift+G`; or to
+      restart Warp. Open the tabs anyway: they get the color, without the native group.
+    - `taken <key> <action>`: ask, with options: 1) another key you propose, bound with
+      `warp-shortcut install <key>` (check it is free first); 2) the user sets one in Settings;
+      3) open the tabs this time without the native group.
+    - `no-xdotool`: say that new groups need `xdotool` (X11) and open without the group.
+  - **Without keys:** `GROUP_MODE=inherit` in `~/.config/warp-orchestrator/config` (or
+    `--inherit`) never presses keys: the tabs get the color, land after the active tab and join its
+    group, if it has one. Use it only when the user asks. The group is saved in the registry
+    either way.
 - **Group tabs that are already open:** no script can move or close a Warp tab. Ask the user to
   close them (the sessions stay on disk), check with `warp-opened` that their `live` column says
   `closed`, then reopen them all in one call, keeping their context:

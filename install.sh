@@ -18,20 +18,14 @@ done
 # Only the entry skill is registered; references/ are read by it, so they stay out of the / menu.
 ln -sfn "$agents_dir/warp-orchestrator" "$claude_dir/warp-orchestrator"
 
-# The group mode "keys" presses Warp's shortcut for this action. Add one unless the user has it.
-# Warp reads keybindings.yaml only at launch: until a restart, set the same key in
-# Settings > Keyboard shortcuts.
-keybindings="${XDG_CONFIG_HOME:-$HOME/.config}/warp-terminal/keybindings.yaml"
-action='"workspace:new_tab_group_from_active_or_selected_tabs"'
-if ! grep -qs "$action" "$keybindings"; then
-  mkdir -p "$(dirname "$keybindings")"
-  echo "$action: ctrl-alt-shift-G" >> "$keybindings"
-  # warp-tab compares this with Warp's start time to know whether Warp has loaded the shortcut.
-  state_dir="${XDG_STATE_HOME:-$HOME/.local/state}/warp-orchestrator"
-  mkdir -p "$state_dir"
-  stat -c %Y "$keybindings" > "$state_dir/keybindings.mark"
-  echo "warp shortcut: ctrl-alt-shift-G for 'Create tab group from active or selected tab(s)'; restart Warp or set it in Settings > Keyboard shortcuts"
-fi
+# warp-tab presses Warp's shortcut to make a tab group. Bind the default key unless it is taken.
+shortcut="$("$root/bin/warp-shortcut")"
+[ "$shortcut" != missing ] || shortcut="$("$root/bin/warp-shortcut" install || true)"
+case "$shortcut" in
+  live*) ;;
+  pending*) echo "warp shortcut: ${shortcut#pending }; Warp loads it after a restart, or set it now in Settings > Keyboard shortcuts > 'Create tab group from active or selected tab(s)'" ;;
+  *) echo "warp shortcut: $shortcut; set one in Settings > Keyboard shortcuts > 'Create tab group from active or selected tab(s)'" ;;
+esac
 
 mkdir -p "$HOME/.claude/agents"
 for f in "$root"/agents/*.md; do
