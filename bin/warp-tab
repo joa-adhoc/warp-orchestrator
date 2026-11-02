@@ -99,12 +99,14 @@ fi
 
 # A group already open in Warp is joined: its last tab comes to the front and the new tabs land
 # next to it, inheriting the group and its color. No keys are pressed.
-join_url=""
+join_url=""; group_colored=0
 if [ -n "$group" ] && live="$(warp-groups --find "$group" 2>/dev/null)"; then
-  IFS=$'\t' read -r _ live_name live_color _ _ join_url <<<"$live"
+  IFS=$'\t' read -r _ live_name live_color _ _ join_url color_from <<<"$live"
   [ "$join_url" != - ] || join_url=""
   if [ -n "$join_url" ]; then
     group="$live_name"
+    # A group with its own color (set in Warp's menu) shows it on its tabs; a tab color would hide it.
+    if [ -z "$color" ] && [ "$color_from" = group ]; then group_colored=1; fi
     [ -n "$color" ] || [ "$live_color" = - ] || color="$live_color"
     palette=0
   fi
@@ -327,7 +329,7 @@ for i in "${!names[@]}"; do
   if [ -n "$name" ] && [ "$runtime" != claude ]; then
     toml+="title = $(toml_str "$name")"$'\n'
   fi
-  [ -z "$color" ] || toml+="color = $(toml_str "$color")"$'\n'
+  [ "$group_colored" = 1 ] || [ -z "$color" ] || toml+="color = $(toml_str "$color")"$'\n'
   toml+=$'\n[[panes]]\nid = "agent"\ntype = "terminal"\n'
   toml+="directory = $(toml_str "$dir")"$'\n'
   toml+="commands = [$(toml_str "bash ${launchers[$i]}")]"$'\n'

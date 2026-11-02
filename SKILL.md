@@ -99,9 +99,13 @@ warp-opened [--days N] [--group TEXT] [--open]   # tabs opened by warp-tab, open
   `ORCHESTRATOR_COLOR` (`yellow`). `--agent` works with any Claude agent.
 - **Colors:** an open group keeps its color, read from Warp. A new group takes a color that no
   open group or tab uses, never the coordinator's; `~/.local/state/warp-orchestrator/groups.json`
-  remembers it, so a group closed and opened again gets the same color while it is free. A group
-  made with the shortcut has no color of its own in Warp: its tabs carry it. Colors are red,
-  green, yellow, blue, magenta and cyan. Pass `-c` only when the user asks for a color.
+  remembers it, so a group closed and opened again gets the same color while it is free. The color
+  belongs to the group, but no script can set a group's color: only Warp's menu (right click on
+  the group > color) can. So a new group gets no color of its own, and its tabs carry the chosen
+  one meanwhile. Once the user colors the group, tabs that join it get no color of their own and
+  show the group's. After making a new group, tell the user once that they can color it with a
+  right click. Colors are red, green, yellow, blue, magenta and cyan. Pass `-c` only when the user
+  asks for a color.
 - **Quota:** with more than 6 tabs that carry a prompt, show the list and ask first. With fewer,
   show one line per tab and open. Opening tabs needs no permission.
 - **Load:** the tabs open at once, but each agent starts `START_GAP` seconds (config, 4) after the

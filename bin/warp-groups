@@ -2,7 +2,9 @@
 """List the tab groups open in Warp, read from Warp's own state database (read only).
 
   warp-groups                one line per group, no header:
-                             window  name  color  tabs  collapsed|expanded  last_tab_url
+                             window  name  color  tabs  collapsed|expanded  last_tab_url  color_from
+                             color_from is "group" when the group has its own color (set in Warp's
+                             menu), "tabs" when only its tabs carry one
   warp-groups --find NAME    the group named NAME, or whose name starts with the same task id
                              ("78504 Codemode" finds "78504 Evals"); exit 1 if there is none
   warp-groups --colors       the colors open groups and tabs use, one per line
@@ -59,6 +61,7 @@ def load_groups():
             last[gid] = (tid, uuid)
     return [{"window": wid, "name": name or "", "tabs": len(members.get(gid, ())),
              "color": color_of(color) or colors.get(gid, ""),
+             "color_from": "group" if color_of(color) else ("tabs" if gid in colors else ""),
              "collapsed": bool(collapsed),
              "url": f"warp://session/{last[gid][1]}" if gid in last else ""}
             for gid, wid, name, color, collapsed in groups]
@@ -115,7 +118,8 @@ def main():
         return
     for g in groups:
         print("\t".join([str(g["window"]), g["name"], g["color"] or "-", str(g["tabs"]),
-                         "collapsed" if g["collapsed"] else "expanded", g["url"] or "-"]))
+                         "collapsed" if g["collapsed"] else "expanded", g["url"] or "-",
+                         g["color_from"] or "-"]))
 
 
 if __name__ == "__main__":
