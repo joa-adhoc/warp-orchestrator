@@ -95,13 +95,16 @@ warp-opened [--days N] [--group TEXT] [--open]   # tabs opened by warp-tab, open
   `warp-orchestrator` opens it in its own tab, named `ORCHESTRATOR_NAME` (`Orchestrator`) and
   colored `ORCHESTRATOR_COLOR` (`yellow`) from the config; `--here` runs it in the current
   terminal, named but without the color. `--agent` works with any Claude agent.
-- **Colors:** an open group keeps its color, read from Warp. A new group takes a color no open
-  Warp group uses, never the coordinator's; `~/.local/state/warp-orchestrator/groups.json`
-  remembers it, so a group closed and opened again gets the same color while it is free. With
-  `keys`, Warp picks the group's color: `warp-tab` reads it back and reports that one. Colors are
-  red, green, yellow, blue, magenta and cyan. Pass `-c` only when the user asks for a color.
+- **Colors:** an open group keeps its color, read from Warp. A new group takes a color that no
+  open group or tab uses, never the coordinator's; `~/.local/state/warp-orchestrator/groups.json`
+  remembers it, so a group closed and opened again gets the same color while it is free. A group
+  made with the shortcut has no color of its own in Warp: its tabs carry it. Colors are red,
+  green, yellow, blue, magenta and cyan. Pass `-c` only when the user asks for a color.
 - **Quota:** with more than 6 tabs that carry a prompt, show the list and ask first. With fewer,
   show one line per tab and open. Opening tabs needs no permission.
+- **Load:** the tabs open at once, but each agent starts `START_GAP` seconds (config, 4) after the
+  previous one, because many agents starting together, each with its MCP servers, can stall the
+  machine. Open them in one call, never in parallel calls.
 - **Report:** how many tabs opened, the group, whether they joined an open one, and its color.
   If `warp-tab` failed, quote its
   message as is.
@@ -134,10 +137,11 @@ Sounds and their files live in `~/.config/warp-orchestrator/config`.
 ## Traps
 
 - Tabs open in the Warp window that was focused last.
-- Focus: each new tab takes the focus for about a second; then `warp-tab` goes back to the tab
-  that ran it (Warp's `WARP_FOCUS_URL`). A key pressed in that second lands in the new tab. The
-  Warp window comes to the front even if the user was in another app. Pass `--focus` only when
-  the user wants to stay on the new tab.
+- Focus: Warp has no way to open a tab in the background. Each new tab takes the focus for about
+  half a second and the Warp window comes to the front; at the end `warp-tab` goes back to where
+  the user was: the tab that ran it (Warp's `WARP_FOCUS_URL`) or the other app's window. A key
+  pressed meanwhile lands in a new tab. Pass `--focus` only when the user wants to stay on the
+  new tab.
 - Screen control: only the `keys` group mode sends keys (`xdotool`). Everything else uses Warp's
   own files and `warp://` links.
 - `warp-tab` writes a temporary tab config in Warp's `tab_configs` folder and opens it with a

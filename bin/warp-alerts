@@ -10,6 +10,7 @@ mkdir -p "$(dirname "$config")"
 [ -f "$config" ] || cat > "$config" <<'EOF'
 SOUND=off
 GROUP_MODE=keys
+START_GAP=4
 ORCHESTRATOR_NAME=Orchestrator
 ORCHESTRATOR_COLOR=yellow
 SOUND_DONE=/usr/share/sounds/freedesktop/stereo/complete.oga

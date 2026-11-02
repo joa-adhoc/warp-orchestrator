@@ -62,6 +62,7 @@ fi
 # With -g and 2+ tabs, how the group is made: the flag wins, then GROUP_MODE in the config.
 config_file="${XDG_CONFIG_HOME:-$HOME/.config}/warp-orchestrator/config"
 GROUP_MODE=keys
+START_GAP=4
 # shellcheck source=/dev/null
 [ -f "$config_file" ] && . "$config_file"
 if [ "$palette" = 0 ] && [ "$inherit" = 0 ] && [ "$GROUP_MODE" = keys ]; then
@@ -230,6 +231,12 @@ palette_group() {
 if [ -n "$agent" ] && [ "$runtime" != claude ]; then
   echo "--agent is for claude only" >&2; exit 2
 fi
+# Each warp:// link brings Warp to the front. Remember where the user was, to go back there at the end.
+prev_win=""
+if [ "$dry" = 0 ] && command -v xdotool >/dev/null; then
+  prev_win="$(xdotool getactivewindow 2>/dev/null || true)"
+fi
+
 # New tabs land after the active tab and the group is made from the first new one, so start from
 # the coordinator's tab with its window in front.
 if [ -n "$join_url" ] && [ "$dry" = 1 ]; then
@@ -278,7 +285,11 @@ for idx in "${!specs[@]}"; do
   # Warp types the command into the new tab, so a keystroke there can land at its end. The tab runs
   # a short launcher that ignores its arguments; the real command, with its quoting, lives inside.
   launcher="$launch_dir/warp_orchestrator_$(date +%s%N).sh"
-  script=$'#!/usr/bin/env bash\nrm -f -- "$0"\nexec '"$(agent_cmd "$name" "$prompt" "$sid" "$resume")"$'\n'
+  script=$'#!/usr/bin/env bash\nrm -f -- "$0"\n'
+  # Agents starting together (each with its MCP servers) can stall the machine: start one every
+  # START_GAP seconds. The tabs themselves open at once.
+  [ "$idx" = 0 ] || [ "$START_GAP" = 0 ] || script+="sleep $((idx * START_GAP))"$'\n'
+  script+="exec $(agent_cmd "$name" "$prompt" "$sid" "$resume")"$'\n'
   if [ "$dry" = 1 ]; then
     echo "# $launcher"
     echo "$script"
@@ -288,10 +299,11 @@ for idx in "${!specs[@]}"; do
   names+=("$name"); sids+=("$sid"); prompts+=("$prompt"); launchers+=("$launcher"); rids+=("$resume")
 done
 
-opened=0
+stems=()
 for i in "${!names[@]}"; do
   name="${names[$i]}"
   stem="warp_orchestrator_$(date +%s%N)"
+  stems+=("$stem")
   toml="name = $(toml_str "${name:-$runtime}")"$'\n'
   # A fixed title wins over the terminal title, so Claude (which titles the tab from --name) and
   # the ✅/🔔 marks of hooks/agent-event would never show. Other runtimes get the fixed title.
@@ -308,40 +320,40 @@ for i in "${!names[@]}"; do
     continue
   fi
   printf '%s' "$toml" > "$config_dir/$stem.toml"
-  # Warp picks up new tab configs with a file watcher; give it a moment before the deeplink.
-  sleep 1
-  xdg-open "$scheme://tab_config/$stem" >/dev/null 2>&1
   # The config only has to live until Warp reads it; otherwise it piles up in the "+" menu.
-  (sleep 15; rm -f "$config_dir/$stem.toml") >/dev/null 2>&1 &
+  (sleep 20; rm -f "$config_dir/$stem.toml") >/dev/null 2>&1 &
   disown
-  register "${sids[$i]}" "$name" "${prompts[$i]}" "${rids[$i]}"
+done
+
+[ "$dry" = 1 ] && exit 0
+
+# Warp picks up new tab configs with a file watcher: one pause for all of them, then the links.
+sleep 1
+opened=0
+for i in "${!names[@]}"; do
+  [ "$i" = 0 ] || sleep 0.5
+  xdg-open "$scheme://tab_config/${stems[$i]}" >/dev/null 2>&1
+  register "${sids[$i]}" "${names[$i]}" "${prompts[$i]}" "${rids[$i]}"
   opened=$((opened + 1))
   # The next tabs land after the active one and inherit its group, so grouping the first is enough.
   if [ "$i" = 0 ] && [ "$palette" = 1 ] && [ -n "$group" ] && [ ${#names[@]} -ge 2 ]; then
     if palette_group "$group"; then
-      # Warp gives the new group a color of its own; report and remember that one.
-      for _ in 1 2 3 4 5 6; do
-        if live="$(warp-groups --find "$group" 2>/dev/null)"; then
-          live_color="$(cut -f3 <<<"$live")"
-          if [ "$live_color" != - ] && [ "$live_color" != "$color" ]; then
-            color="$live_color"; remember_color "$group" "$color"
-          fi
-          break
-        fi
-        sleep 0.5
-      done
+      sleep 1
+      warp-groups --find "$group" >/dev/null 2>&1 ||
+        echo "warp-tab: Warp shows no group named '$group' yet; a key pressed meanwhile may have changed its name" >&2
     else
       echo "warp-tab: the group was not created" >&2
     fi
   fi
 done
 
-[ "$dry" = 1 ] && exit 0
-
-if [ "$focus" = 0 ] && [ "$opened" -gt 0 ]; then
-  sleep 1
-  # Warp sets WARP_FOCUS_URL in every session; opening it brings that tab back to the front.
-  if [ -n "${WARP_FOCUS_URL:-}" ]; then
+# Back to where the user was: the coordinator's tab, or another app.
+if [ "$focus" = 0 ]; then
+  sleep 0.5
+  if [ -n "$prev_win" ] && ! [[ "$(ps -o comm= -p "$(xdotool getwindowpid "$prev_win" 2>/dev/null)" 2>/dev/null)" == warp* ]]; then
+    xdotool windowactivate "$prev_win" 2>/dev/null || true
+  elif [ -n "${WARP_FOCUS_URL:-}" ]; then
+    # Warp sets WARP_FOCUS_URL in every session; opening it brings that tab back to the front.
     xdg-open "$WARP_FOCUS_URL" >/dev/null 2>&1
   fi
 fi
