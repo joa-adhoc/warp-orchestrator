@@ -1,9 +1,8 @@
 #!/usr/bin/env bash
-# Start the coordinator: Claude with the warp-orchestrator agent, in its own Warp tab named
-# ORCHESTRATOR_NAME and colored ORCHESTRATOR_COLOR (config), so it is easy to find.
-#   warp-orchestrator            open it in a new tab and switch to it
-#   warp-orchestrator --here     run it in this terminal (the name is set, the color is not)
-# Extra arguments go to claude with --here.
+# Start the coordinator: Claude with the warp-orchestrator agent, named ORCHESTRATOR_NAME (config).
+#   warp-orchestrator          run it in this terminal (the tab gets the name, not the color)
+#   warp-orchestrator --tab    open it in a new tab, also colored ORCHESTRATOR_COLOR, and switch to it
+# Other arguments go to claude.
 set -euo pipefail
 # The other warp-* tools live next to this script, outside the PATH.
 PATH="$(dirname "$(readlink -f "$0")"):$PATH"
@@ -14,8 +13,7 @@ config="${XDG_CONFIG_HOME:-$HOME/.config}/warp-orchestrator/config"
 # shellcheck source=/dev/null
 [ -f "$config" ] && . "$config"
 
-if [ "${1:-}" = --here ]; then
-  shift
-  exec claude --agent warp-orchestrator --name "$ORCHESTRATOR_NAME" "$@"
+if [ "${1:-}" = --tab ]; then
+  exec warp-tab --focus --agent warp-orchestrator -c "$ORCHESTRATOR_COLOR" -d "$PWD" "$ORCHESTRATOR_NAME::"
 fi
-exec warp-tab --focus --agent warp-orchestrator -c "$ORCHESTRATOR_COLOR" -d "$PWD" "$ORCHESTRATOR_NAME::"
+exec claude --agent warp-orchestrator --name "$ORCHESTRATOR_NAME" "$@"

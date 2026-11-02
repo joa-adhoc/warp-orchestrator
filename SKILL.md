@@ -11,9 +11,8 @@ Each tab runs its own agent session, named `<task id> <short name>`.
 ## Before anything
 
 If this session is not the coordinator agent (you were not started with `--agent
-warp-orchestrator`), offer once to open the coordinator in its own tab, named and colored, with
-`warp-orchestrator`, and go on here only if the user prefers. A plain session cannot get the
-coordinator's name or color.
+warp-orchestrator`), say once that the user can exit and run `warp-orchestrator` in this same
+terminal to get the coordinator, named `Orchestrator`, and go on here if the user prefers.
 
 Run `~/.agents/skills/warp-orchestrator/bin/warp-check`. If it exits non-zero, stop and tell the
 user the reason it printed. Do not open tabs another way. If it is not found, tell the user to run
@@ -45,7 +44,7 @@ warp-tab -d <dir> "<name>::<prompt>"         # one tab
 warp-tab -d <dir> -g "<group>" "<n1>::<p1>" "<n2>::<p2>"   # several: join the open group or make one
 warp-tab --agent warp-orchestrator "Orchestrator::"   # a session started with a Claude agent
 warp-tab -d <dir> -r <session-id>            # resume; repeat -r to resume several
-warp-orchestrator [--here]                   # the coordinator in its own tab: "Orchestrator", yellow
+warp-orchestrator [--tab]                    # the coordinator here, "Orchestrator"; --tab: new yellow tab
 warp-tab -a codex ...                        # other runtime: claude (default), codex, gemini
 warp-tab --dry-run ...                       # print the tab configs, open nothing
 warp-sessions <number or words>              # find existing sessions
@@ -95,9 +94,9 @@ warp-opened [--days N] [--group TEXT] [--open]   # tabs opened by warp-tab, open
   `warp-tab -g "<group>" -r <id1> -r <id2> "<n1>::" "<n2>::"`. Never reopen a session that is
   still `open`: two processes would write the same session.
 - **Coordinator agent:** `agents/warp-orchestrator.md` is the coordinator's identity.
-  `warp-orchestrator` opens it in its own tab, named `ORCHESTRATOR_NAME` (`Orchestrator`) and
-  colored `ORCHESTRATOR_COLOR` (`yellow`) from the config; `--here` runs it in the current
-  terminal, named but without the color. `--agent` works with any Claude agent.
+  `warp-orchestrator` runs it in the current terminal, named `ORCHESTRATOR_NAME`
+  (`Orchestrator`) from the config; `--tab` opens it in a new tab instead, also colored
+  `ORCHESTRATOR_COLOR` (`yellow`). `--agent` works with any Claude agent.
 - **Colors:** an open group keeps its color, read from Warp. A new group takes a color that no
   open group or tab uses, never the coordinator's; `~/.local/state/warp-orchestrator/groups.json`
   remembers it, so a group closed and opened again gets the same color while it is free. A group
