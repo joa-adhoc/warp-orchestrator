@@ -40,7 +40,7 @@ Warp config that runs it:
 Every tab is a tab config (TOML), opened with `warp://tab_config/<name>` in the coordinator's
 window.
 
-- A new group (`-g`, 2+ tabs): Warp creates tab groups only from its UI, so `xdotool` presses the
+- A new group (`-g`): Warp creates tab groups only from its UI, so `xdotool` presses the
   Warp shortcut of "Create tab group from active or selected tab(s)" and types the name. It is the
   only step that controls the screen. `warp-shortcut` binds the key (`ctrl-alt-shift-G` by
   default); Warp loads `keybindings.yaml` only at launch, so until a restart the user sets the

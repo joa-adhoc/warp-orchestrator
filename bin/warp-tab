@@ -15,7 +15,7 @@ usage: warp-tab [-d DIR] [-a claude|codex|gemini] [-g GROUP [--keys|--inherit]] 
                  tabs get GROUP's color and join the Warp group of the active tab, if it has one
   -c COLOR       tab or group color: red green yellow blue magenta cyan (default: a color no open
                  group uses, or the open group's color)
-  --keys         with -g and 2+ specs, create a native group named GROUP in the current window
+  --keys         with -g, create a native group named GROUP in the current window
                  (the default): xdotool (X11) presses the Warp shortcut of "Create tab group from
                  active or selected tab(s)" (see warp-shortcut) and types the name. Takes over the
                  keyboard for a few seconds; if Warp loses the focus or the shortcut is not live,
@@ -61,7 +61,7 @@ if [ ${#specs[@]} -eq 0 ]; then
   fi
 fi
 
-# With -g and 2+ tabs, how the group is made: the flag wins, then GROUP_MODE in the config.
+# With -g, how a new group is made: the flag wins, then GROUP_MODE in the config.
 config_file="${XDG_CONFIG_HOME:-$HOME/.config}/warp-orchestrator/config"
 GROUP_MODE=keys
 START_GAP=4
@@ -353,16 +353,25 @@ for i in "${!names[@]}"; do
   register "${sids[$i]}" "${names[$i]}" "${prompts[$i]}" "${rids[$i]}"
   opened=$((opened + 1))
   # The next tabs land after the active one and inherit its group, so grouping the first is enough.
-  if [ "$i" = 0 ] && [ "$palette" = 1 ] && [ -n "$group" ] && [ ${#names[@]} -ge 2 ]; then
-    if palette_group "$group"; then
-      sleep 1
-      warp-groups --find "$group" >/dev/null 2>&1 ||
-        echo "warp-tab: Warp shows no group named '$group' yet; a key pressed meanwhile may have changed its name" >&2
-    else
-      echo "warp-tab: the group was not created" >&2
-    fi
+  # A group of one tab is still a group: more tabs may join it later.
+  if [ "$i" = 0 ] && [ "$palette" = 1 ] && [ -n "$group" ] && [ -z "$join_url" ]; then
+    palette_group "$group" || echo "warp-tab: the group was not created" >&2
   fi
 done
+
+# Report what Warp shows, not what was attempted.
+group_state=""
+if [ -n "$group" ]; then
+  if [ -n "$join_url" ]; then
+    group_state="joined"
+  else
+    group_state="NOT created: tabs have the color only"
+    for _ in 1 2 3 4; do
+      if warp-groups --find "$group" >/dev/null 2>&1; then group_state="created"; break; fi
+      sleep 0.5
+    done
+  fi
+fi
 
 # Back to where the user was: the coordinator's tab, or another app.
 if [ "$focus" = 0 ]; then
@@ -375,4 +384,4 @@ if [ "$focus" = 0 ]; then
   fi
 fi
 
-echo "total: $opened${group:+, group: $group}${join_url:+ (joined)}${color:+, color: $color}"
+echo "total: $opened${group:+, group: $group ($group_state)}${color:+, color: $color}"

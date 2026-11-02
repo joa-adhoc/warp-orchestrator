@@ -61,8 +61,8 @@ warp-opened [--days N] [--group TEXT] [--open]   # tabs opened by warp-tab, open
   folder without `hasTrustDialogAccepted: true` in `~/.claude.json` stops at the trust prompt: use
   the coordinator's folder and name the repo and its path in the prompt.
 - **Runtime (`-a`):** `claude` unless the user asks for another.
-- **Group (`-g`):** always with two or more tabs, so the user finds them together, and with one
-  tab that belongs to a group already open.
+- **Group (`-g`):** always with two or more tabs, so the user finds them together; with one tab
+  that belongs to a group already open; and whenever the user asks for a group, even of one tab.
   - **Name:** short, 1 to 3 words. With a parent task, its id first: `78504 Codemode`. Without
     one, what the tabs have in common: `PRs en revisión`. Write the short name yourself;
     `warp-name --group` only cuts it to fit.
@@ -107,9 +107,9 @@ warp-opened [--days N] [--group TEXT] [--open]   # tabs opened by warp-tab, open
 - **Load:** the tabs open at once, but each agent starts `START_GAP` seconds (config, 4) after the
   previous one, because many agents starting together, each with its MCP servers, can stall the
   machine. Open them in one call, never in parallel calls.
-- **Report:** how many tabs opened, the group, whether they joined an open one, and its color.
-  If `warp-tab` failed, quote its
-  message as is.
+- **Report:** copy what the last line of `warp-tab` says: tabs opened, the group and its state
+  (`created`, `joined` or `NOT created`, read back from Warp), and the color. Never say a group was
+  made unless that line says `created` or `joined`. If `warp-tab` failed, quote its message as is.
 
 ## What was opened
 
