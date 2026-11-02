@@ -2,6 +2,8 @@
 # Exit 0 when this shell can open Warp tabs. Otherwise print one reason per line and exit 1.
 # Also prints the tab_configs dir and URI scheme on success, as "key=value" lines.
 set -u
+# The other warp-* tools live next to this script, outside the PATH.
+PATH="$(dirname "$(readlink -f "$0")"):$PATH"
 
 reasons=()
 [ "$(uname -s)" = Linux ] || reasons+=("not-linux: $(uname -s)")

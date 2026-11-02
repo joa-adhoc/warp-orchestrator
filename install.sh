@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Link the scripts into ~/.local/bin, the skill and the agent into the user folders, register the
+# Link warp-orchestrator into ~/.local/bin, the skill and the agent into the user folders, register the
 # Claude Code hooks and the Warp shortcut for tab groups. Safe to run again.
 set -euo pipefail
 
@@ -11,9 +11,13 @@ claude_dir="$HOME/.claude/skills"
 mkdir -p "$bin_dir" "$agents_dir" "$claude_dir"
 chmod +x "$root"/bin/* "$root"/hooks/*
 
+# Only the coordinator goes in the PATH; the other tools are called from bin/ by the skill and by
+# each other. Drop links to them left by older installs.
 for f in "$root"/bin/*; do
-  ln -sfn "$f" "$bin_dir/$(basename "$f")"
+  link="$bin_dir/$(basename "$f")"
+  if [ -L "$link" ] && [ "$(readlink -f "$link")" = "$(readlink -f "$f")" ]; then rm -f "$link"; fi
 done
+ln -sfn "$root/bin/warp-orchestrator" "$bin_dir/warp-orchestrator"
 
 # Only the entry skill is registered; references/ are read by it, so they stay out of the / menu.
 ln -sfn "$agents_dir/warp-orchestrator" "$claude_dir/warp-orchestrator"
@@ -44,10 +48,12 @@ wanted = [
 changed = False
 for event, matcher, script, name in wanted:
     entries = cfg.setdefault("hooks", {}).setdefault(event, [])
-    if any(h.get("name") == name for e in entries for h in e.get("hooks", [])):
-        continue
     script_path, *args = script.split()
     command = " ".join([f'bash "{os.path.join(hooks_dir, script_path)}"', *args])
+    # Match by command too: Claude Code drops the "name" field when it rewrites settings.json.
+    if any(h.get("name") == name or h.get("command") == command
+           for e in entries for h in e.get("hooks", [])):
+        continue
     entries.append({"matcher": matcher, "hooks": [{"type": "command", "command": command, "name": name}]})
     changed = True
     print(f"claude hook: registered {name}")

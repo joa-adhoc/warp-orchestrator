@@ -5,6 +5,8 @@
 #   warp-orchestrator --here     run it in this terminal (the name is set, the color is not)
 # Extra arguments go to claude with --here.
 set -euo pipefail
+# The other warp-* tools live next to this script, outside the PATH.
+PATH="$(dirname "$(readlink -f "$0")"):$PATH"
 
 ORCHESTRATOR_NAME=Orchestrator
 ORCHESTRATOR_COLOR=yellow

@@ -15,8 +15,8 @@ warp-orchestrator`), offer once to open the coordinator in its own tab, named an
 `warp-orchestrator`, and go on here only if the user prefers. A plain session cannot get the
 coordinator's name or color.
 
-Run `warp-check`. If it exits non-zero, stop and tell the user the reason it printed. Do not open
-tabs another way. If `warp-check` is not found, tell the user to run
+Run `~/.agents/skills/warp-orchestrator/bin/warp-check`. If it exits non-zero, stop and tell the
+user the reason it printed. Do not open tabs another way. If it is not found, tell the user to run
 `~/.agents/skills/warp-orchestrator/install.sh`.
 
 ## Route
@@ -30,7 +30,10 @@ tabs another way. If `warp-check` is not found, tell the user to run
 
 ## Tools
 
-All are in `PATH`; `--help` prints the full usage.
+Only `warp-orchestrator` is in the `PATH`, so the user's shell does not fill up with tools. The
+others live in `~/.agents/skills/warp-orchestrator/bin/`: always call them with that folder, for
+example `~/.agents/skills/warp-orchestrator/bin/warp-tab ...`. They are written short below.
+`--help` prints the full usage.
 
 ```bash
 warp-check                                   # exit 0 inside Warp on Linux; shortcut=<state>

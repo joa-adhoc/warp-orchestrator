@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Open one Warp tab per spec, each running an agent CLI. See usage below.
 set -euo pipefail
+# The other warp-* tools live next to this script, outside the PATH.
+PATH="$(dirname "$(readlink -f "$0")"):$PATH"
 
 usage() {
   cat <<'EOF'

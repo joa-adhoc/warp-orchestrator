@@ -24,7 +24,7 @@ warp-orchestrator/        entry skill: checks Warp, routes, reads the registry
 ~/.agents/skills/warp-orchestrator/install.sh
 ```
 
-It links `bin/*` into `~/.local/bin`, the skills into `~/.agents/skills` and `~/.claude/skills`,
+It links `warp-orchestrator` into `~/.local/bin` (the other tools stay in `bin/`), the skills into `~/.agents/skills` and `~/.claude/skills`,
 and registers the SessionStart, Stop and Notification hooks in `~/.claude/settings.json`.
 
 ## Requirements
