@@ -35,9 +35,10 @@ All are in `PATH`; `--help` prints the full usage.
 ```bash
 warp-check                                   # exit 0 inside Warp on Linux
 warp-name 78420 "Skill encarar: borrador"    # → 78420 Skill encarar
-warp-name --group 78564 "Dev Tips en la era IA"  # → UM 78564 · Dev Tips en la era IA
+warp-name --group 78564 "Dev Tips en la era IA"  # → 78564 Dev Tips
+warp-groups                                  # groups open in Warp: name, color, tabs, last tab link
 warp-tab -d <dir> "<name>::<prompt>"         # one tab
-warp-tab -d <dir> -g "<group>" "<n1>::<p1>" "<n2>::<p2>"   # several, grouped per GROUP_MODE
+warp-tab -d <dir> -g "<group>" "<n1>::<p1>" "<n2>::<p2>"   # several: join the open group or make one
 warp-tab --agent warp-orchestrator "Orquestador::"   # a session started with a Claude agent
 warp-tab -d <dir> -r <session-id>            # resume; repeat -r to resume several
 warp-orchestrator [--here]                   # the coordinator in its own tab: "Orquestador", yellow
@@ -49,17 +50,27 @@ warp-opened [--days N] [--group TEXT] [--open]   # tabs opened by warp-tab, open
 
 ## Rules for every tab
 
-- **Name:** the task number and its Odoo name. Pass the full name: `warp-tab` shortens names that
-  start with a task id. Name it by the task even when the session is about a PR. Without a task,
-  say what it does (`Check Railway logs`). An empty session has no name.
+- **Name:** `<task id> <short description>` whenever there is a task (`78420 Skill encarar`).
+  Pass the full Odoo name: `warp-tab` shortens names that start with a task id. Name it by the
+  task even when the session is about a PR. Without a task, say what it does
+  (`Check Railway logs`). An empty session has no name.
 - **Folder (`-d`):** the repo the request names; otherwise the coordinator's folder. For Claude, a
   folder without `hasTrustDialogAccepted: true` in `~/.claude.json` stops at the trust prompt: use
   the coordinator's folder and name the repo and its path in the prompt.
 - **Runtime (`-a`):** `claude` unless the user asks for another.
-- **Group (`-g`):** always with two or more tabs, so the user finds them together. Warp creates
-  groups only from its UI or from a launch config, so there are three modes. `warp-tab` uses
-  `GROUP_MODE` from `~/.config/warp-orchestrator/config` unless a flag says otherwise; do not pass
-  a flag unless the user asks for a mode. The group is saved in the registry in all of them.
+- **Group (`-g`):** always with two or more tabs, so the user finds them together, and with one
+  tab that belongs to a group already open.
+  - **Name:** short, 1 to 3 words. With a parent task, its id first: `78504 Codemode`. Without
+    one, what the tabs have in common: `PRs en revisión`. Write the short name yourself;
+    `warp-name --group` only cuts it to fit.
+  - **Open group:** run `warp-groups` first. If a group with that name or the same leading task
+    id is open (the user may have made it by hand), pass its exact name: `warp-tab` brings its
+    last tab to the front and the new tabs join it, with its color. No keys are pressed.
+  - **New group:** Warp creates groups only from its UI or from a launch config, so there are
+    three modes. `warp-tab` uses `GROUP_MODE` from `~/.config/warp-orchestrator/config` unless a
+    flag says otherwise; do not pass a flag unless the user asks for a mode. If `warp-check`
+    prints a `warning=` line about it, tell the user before opening. The group is saved in the
+    registry in all of them.
   - `keys`: a native group in the current window. `xdotool` presses the Warp shortcut of "Create
     tab group from active or selected tab(s)" and types the name in the rename box Warp opens.
     Before running it, tell the user not to type for about 10 seconds. It needs that shortcut set
@@ -78,12 +89,15 @@ warp-opened [--days N] [--group TEXT] [--open]   # tabs opened by warp-tab, open
   `warp-orchestrator` opens it in its own tab, named `ORCHESTRATOR_NAME` (`Orquestador`) and
   colored `ORCHESTRATOR_COLOR` (`yellow`) from the config; `--here` runs it in the current
   terminal, named but without the color. `--agent` works with any Claude agent.
-- **Colors:** each group keeps one color across runs, saved in
-  `~/.local/state/warp-orchestrator/groups.json`. A new group takes a color no other group has
-  yet, never the coordinator's. Pass `-c` only when the user asks for a color.
+- **Colors:** an open group keeps its color, read from Warp. A new group takes a color no open
+  Warp group uses, never the coordinator's; `~/.local/state/warp-orchestrator/groups.json`
+  remembers it, so a group closed and opened again gets the same color while it is free. With
+  `keys`, Warp picks the group's color: `warp-tab` reads it back and reports that one. Colors are
+  red, green, yellow, blue, magenta and cyan. Pass `-c` only when the user asks for a color.
 - **Quota:** with more than 6 tabs that carry a prompt, show the list and ask first. With fewer,
   show one line per tab and open. Opening tabs needs no permission.
-- **Report:** how many tabs opened, the group and its color. If `warp-tab` failed, quote its
+- **Report:** how many tabs opened, the group, whether they joined an open one, and its color.
+  If `warp-tab` failed, quote its
   message as is.
 
 ## What was opened

@@ -22,3 +22,17 @@ if [ ${#reasons[@]} -gt 0 ]; then
 fi
 echo "tab_configs=$dir"
 echo "scheme=$scheme"
+
+# Not fatal: without the shortcut, GROUP_MODE=keys opens the tabs but makes no new group.
+GROUP_MODE=inherit
+config="${XDG_CONFIG_HOME:-$HOME/.config}/warp-orchestrator/config"
+# shellcheck source=/dev/null
+[ -f "$config" ] && . "$config"
+if [ "$GROUP_MODE" = keys ]; then
+  keybindings="${XDG_CONFIG_HOME:-$HOME/.config}/warp-terminal/keybindings.yaml"
+  if ! command -v xdotool >/dev/null; then
+    echo "warning=GROUP_MODE=keys needs xdotool; new groups will not be created"
+  elif ! grep -qsE '^[[:space:]]*"?workspace:new_tab_group_from_active_or_selected_tabs"?:[[:space:]]*[^[:space:]n]' "$keybindings"; then
+    echo "warning=GROUP_MODE=keys but Warp has no shortcut for 'Create tab group from active or selected tab(s)'; new groups will not be created (open groups are still joined)"
+  fi
+fi

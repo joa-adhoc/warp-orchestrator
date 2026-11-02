@@ -10,8 +10,8 @@ warp-orchestrator/        entry skill: checks Warp, routes, reads the registry
 │   ├── umbrella.md
 │   └── resume.md
 ├── agents/               warp-orchestrator.md, the coordinator agent
-├── bin/                  warp-check, warp-tab, warp-name, warp-sessions, warp-opened, warp-alerts,
-│                         warp-orchestrator
+├── bin/                  warp-check, warp-tab, warp-name, warp-groups, warp-sessions, warp-opened,
+│                         warp-alerts, warp-orchestrator
 ├── hooks/
 │   ├── session-start     tells the agent when Warp is not available
 │   └── agent-event       ✅ / 🔔 in the tab title and an optional sound
@@ -47,6 +47,10 @@ Warp config that runs it:
   Keyboard shortcuts) and types the name. It is the only option that controls the screen. gr's
   `claude-tab` searches the command palette instead; a slow filter there can pick a file and type
   the group name into it.
+
+- A group already open in Warp: `warp-groups` reads Warp's state database
+  (`~/.local/state/warp-terminal/warp.sqlite`, read only), `warp-tab` opens the group's last tab
+  with its `warp://session/<uuid>` link and the new tabs land next to it, inside the group.
 
 Configs are deleted 15 seconds later.
 

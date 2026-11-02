@@ -8,9 +8,11 @@ usage: warp-tab [-d DIR] [-a claude|codex|gemini] [-g GROUP [--keys|--window|--i
 
   -d DIR         working directory of the new tabs (default: current dir)
   -a RUNTIME     agent CLI to run (default: claude)
-  -g GROUP       group label, saved in the registry. In the current window the tabs get GROUP's
-                 color and join the Warp group of the active tab, if it has one
-  -c COLOR       tab or group color: red green yellow blue magenta cyan (default: derived from GROUP)
+  -g GROUP       group label, saved in the registry. If a Warp group with that name (or the same
+                 leading task id) is open, the tabs join it. Otherwise, in the current window the
+                 tabs get GROUP's color and join the Warp group of the active tab, if it has one
+  -c COLOR       tab or group color: red green yellow blue magenta cyan (default: a color no open
+                 group uses, or the open group's color)
   --window       with -g and 2+ specs, open them in a new Warp window as a native group named GROUP
   --keys         with -g and 2+ specs, create a native group named GROUP in the current window:
                  xdotool (X11) presses the Warp shortcut of "Create tab group from active or
@@ -89,36 +91,60 @@ fi
 config_dir="$(sed -n 's/^tab_configs=//p' <<<"$check")"
 scheme="$(sed -n 's/^scheme=//p' <<<"$check")"
 
-if [[ "$group" =~ ^UM\ [0-9]+\  ]] && [ ${#group} -gt 40 ]; then
-  group="$(warp-name --group "$(cut -d' ' -f2 <<<"$group")" "$(cut -d' ' -f4- <<<"$group")")"
+if [[ "$group" =~ ^[0-9]+\  ]] && [ ${#group} -gt 20 ]; then
+  group="$(warp-name --group "${group%% *}" "${group#* }")"
 fi
 
-# Each group keeps one color across runs, saved in groups.json. A new group takes a color no other
-# group has yet (the least used once all are taken), never the coordinator's.
+# A group already open in Warp is joined: its last tab comes to the front and the new tabs land
+# next to it, inheriting the group and its color. No keys are pressed.
+join_url=""
+if [ -n "$group" ] && live="$(warp-groups --find "$group" 2>/dev/null)"; then
+  IFS=$'\t' read -r _ live_name live_color _ _ join_url <<<"$live"
+  [ "$join_url" != - ] || join_url=""
+  if [ -n "$join_url" ]; then
+    group="$live_name"
+    [ -n "$color" ] || [ "$live_color" = - ] || color="$live_color"
+    palette=0; new_window=0
+  fi
+fi
+
+# A new group takes a color that no open Warp group uses, never the coordinator's. groups.json
+# remembers it, so a group closed and opened again gets the same color while it is free.
 ORCHESTRATOR_COLOR="${ORCHESTRATOR_COLOR:-yellow}"
-if [ -z "$color" ] && [ -n "$group" ]; then
-  color="$(python3 -I - "${XDG_STATE_HOME:-$HOME/.local/state}/warp-orchestrator/groups.json" \
-    "$group" "$ORCHESTRATOR_COLOR" "$dry" <<'PY'
+groups_file="${XDG_STATE_HOME:-$HOME/.local/state}/warp-orchestrator/groups.json"
+remember_color() {
+  python3 -I - "$groups_file" "$1" "$2" <<'PY'
 import json, os, sys
-path, group, reserved, dry = sys.argv[1:]
-palette = [c for c in ("red", "green", "blue", "magenta", "cyan", "yellow", "white") if c != reserved]
+path, group, color = sys.argv[1:]
+try:
+    with open(path) as f:
+        groups = json.load(f)
+except (OSError, ValueError):
+    groups = {}
+groups[group] = color
+os.makedirs(os.path.dirname(path), exist_ok=True)
+with open(path, "w") as f:
+    json.dump(groups, f, ensure_ascii=False, indent=2)
+PY
+}
+if [ -z "$color" ] && [ -n "$group" ]; then
+  color="$(python3 -I - "$groups_file" "$group" "$ORCHESTRATOR_COLOR" "$(warp-groups --colors 2>/dev/null | tr '\n' ' ')" <<'PY'
+import json, sys
+path, group, reserved, live = sys.argv[1:]
+palette = [c for c in ("red", "green", "blue", "magenta", "cyan", "yellow") if c != reserved]
+live = live.split()
 try:
     with open(path) as f:
         groups = json.load(f)
 except (OSError, ValueError):
     groups = {}
 color = groups.get(group)
-if color not in palette:
-    used = list(groups.values())
-    color = min(palette, key=lambda c: (used.count(c), palette.index(c)))
-    groups[group] = color
-    if dry != "1":
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        with open(path, "w") as f:
-            json.dump(groups, f, ensure_ascii=False, indent=2)
+if color not in palette or color in live:
+    color = min(palette, key=lambda c: (live.count(c), palette.index(c)))
 print(color)
 PY
 )"
+  [ "$dry" = 1 ] || remember_color "$group" "$color"
 fi
 
 toml_str() {
@@ -249,7 +275,12 @@ if [ -n "$agent" ] && [ "$runtime" != claude ]; then
 fi
 # New tabs land after the active tab and the group is made from the first new one, so start from
 # the coordinator's tab with its window in front.
-if [ "$palette" = 1 ] && [ "$dry" = 0 ]; then
+if [ -n "$join_url" ] && [ "$dry" = 1 ]; then
+  echo "# join the open group '$group': $join_url"
+elif [ -n "$join_url" ]; then
+  xdg-open "$join_url" >/dev/null 2>&1
+  sleep 0.8
+elif [ "$palette" = 1 ] && [ "$dry" = 0 ]; then
   if [ -n "${WARP_FOCUS_URL:-}" ]; then
     xdg-open "$WARP_FOCUS_URL" >/dev/null 2>&1
     sleep 0.8
@@ -374,7 +405,21 @@ else
     opened=$((opened + 1))
     # The next tabs land after the active one and inherit its group, so grouping the first is enough.
     if [ "$i" = 0 ] && [ "$palette" = 1 ] && [ -n "$group" ] && [ ${#names[@]} -ge 2 ]; then
-      palette_group "$group" || echo "warp-tab: the group was not created" >&2
+      if palette_group "$group"; then
+        # Warp gives the new group a color of its own; report and remember that one.
+        for _ in 1 2 3 4 5 6; do
+          if live="$(warp-groups --find "$group" 2>/dev/null)"; then
+            live_color="$(cut -f3 <<<"$live")"
+            if [ "$live_color" != - ] && [ "$live_color" != "$color" ]; then
+              color="$live_color"; remember_color "$group" "$color"
+            fi
+            break
+          fi
+          sleep 0.5
+        done
+      else
+        echo "warp-tab: the group was not created" >&2
+      fi
     fi
   done
 fi
@@ -389,4 +434,4 @@ if [ "$focus" = 0 ] && [ "$opened" -gt 0 ]; then
   fi
 fi
 
-echo "total: $opened${group:+, group: $group}${color:+, color: $color}"
+echo "total: $opened${group:+, group: $group}${join_url:+ (joined)}${color:+, color: $color}"

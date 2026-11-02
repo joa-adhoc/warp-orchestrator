@@ -24,5 +24,7 @@ first; if it fails, stop and say why.
    warp-tab -d <dir> -g "<group>" "<n1>::<p1>" "<n2>::<p2>"
    ```
 
-   The group name says what is inside: `PRs in review`, `Rielec tickets`.
+   The group name is short and says what is inside: `PRs en revisión`, `Tickets Rielec`. With a
+   parent task, its id goes first: `78504 Codemode`. If `warp-groups` shows that group open, use
+   its exact name and the tabs join it.
 4. **Report** how many tabs opened and the group.
