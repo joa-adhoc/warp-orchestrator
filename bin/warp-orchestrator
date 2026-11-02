@@ -6,7 +6,7 @@
 # Extra arguments go to claude with --here.
 set -euo pipefail
 
-ORCHESTRATOR_NAME=Orquestador
+ORCHESTRATOR_NAME=Orchestrator
 ORCHESTRATOR_COLOR=yellow
 config="${XDG_CONFIG_HOME:-$HOME/.config}/warp-orchestrator/config"
 # shellcheck source=/dev/null

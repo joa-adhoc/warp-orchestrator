@@ -62,7 +62,7 @@ Configs are deleted 15 seconds later.
 `~/.local/state/warp-orchestrator/state.md`. `install.sh` links it into `~/.claude/agents`.
 
 ```bash
-warp-orchestrator          # new tab: claude --agent warp-orchestrator --name Orquestador, yellow
+warp-orchestrator          # new tab: claude --agent warp-orchestrator --name Orchestrator, yellow
 warp-orchestrator --here   # same, in this terminal (no color)
 ``` For Claude it
 passes `--session-id`, so the registry knows the id of every new session.
