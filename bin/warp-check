@@ -2,6 +2,8 @@
 # Exit 0 when this shell can open Warp tabs. Otherwise print one reason per line and exit 1.
 # Also prints the tab_configs dir and URI scheme on success, as "key=value" lines.
 set -u
+# The other warp-* tools live next to this script, outside the PATH.
+PATH="$(dirname "$(readlink -f "$0")"):$PATH"
 
 reasons=()
 [ "$(uname -s)" = Linux ] || reasons+=("not-linux: $(uname -s)")
@@ -22,3 +24,19 @@ if [ ${#reasons[@]} -gt 0 ]; then
 fi
 echo "tab_configs=$dir"
 echo "scheme=$scheme"
+
+# Not fatal: without a live shortcut, new groups are not created (open groups are still joined).
+# A missing shortcut is bound to the default key when that key is free.
+GROUP_MODE=keys
+config="${XDG_CONFIG_HOME:-$HOME/.config}/warp-orchestrator/config"
+# shellcheck source=/dev/null
+[ -f "$config" ] && . "$config"
+if [ "$GROUP_MODE" = keys ]; then
+  if ! command -v xdotool >/dev/null; then
+    echo "shortcut=no-xdotool"
+  else
+    shortcut="$(warp-shortcut)"
+    [ "$shortcut" != missing ] || shortcut="$(warp-shortcut install)"
+    echo "shortcut=$shortcut"
+  fi
+fi

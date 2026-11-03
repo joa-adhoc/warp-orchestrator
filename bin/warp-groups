@@ -1,0 +1,126 @@
+#!/usr/bin/env python3
+"""List the tab groups open in Warp, read from Warp's own state database (read only).
+
+  warp-groups                one line per group, no header:
+                             window  name  color  tabs  collapsed|expanded  last_tab_url  color_from
+                             color_from is "group" when the group has its own color (set in Warp's
+                             menu), "tabs" when only its tabs carry one
+  warp-groups --find NAME    the group named NAME, or whose name starts with the same task id
+                             ("78504 Codemode" finds "78504 Evals"); exit 1 if there is none
+  warp-groups --colors       the colors open groups and tabs use, one per line
+
+last_tab_url (warp://session/<uuid>) brings the group's last tab to the front: a tab opened right
+after it lands next to it and joins the group. Warp writes this database on its own schedule, so a
+group made a moment ago may not show yet.
+"""
+import argparse
+import os
+import re
+import sqlite3
+import sys
+
+
+def db_path():
+    state = os.environ.get("XDG_STATE_HOME") or os.path.expanduser("~/.local/state")
+    app = "warp-terminal-preview" if "preview" in os.environ.get("WARP_CLIENT_VERSION", "") else "warp-terminal"
+    return os.path.join(state, app, "warp.sqlite")
+
+
+def color_of(raw):
+    # Warp stores the color as a YAML snippet: "---\nColor: red\n".
+    m = re.search(r"Color:\s*(\w+)", raw or "")
+    return m.group(1).lower() if m else ""
+
+
+def load_groups():
+    path = db_path()
+    if not os.path.exists(path):
+        return []
+    con = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=2)
+    try:
+        groups = con.execute(
+            "SELECT id, window_id, name, color, collapsed FROM tab_groups ORDER BY window_id, id").fetchall()
+        tabs = con.execute("""
+            SELECT t.tab_group_id, t.id, lower(hex(tp.uuid)), t.color
+            FROM tabs t
+            JOIN pane_nodes pn ON pn.tab_id = t.id
+            JOIN terminal_panes tp ON tp.id = pn.id
+            JOIN pane_leaves pl ON pl.pane_node_id = pn.id
+            WHERE t.tab_group_id IS NOT NULL
+            ORDER BY t.id, pl.is_focused DESC""").fetchall()
+    finally:
+        con.close()
+    # Tabs are saved in tab bar order, so the highest id is the group's last tab. A group made with
+    # the shortcut has no color of its own; its tabs carry the one warp-tab gave them.
+    members, last, colors = {}, {}, {}
+    for gid, tid, uuid, color in tabs:
+        members.setdefault(gid, set()).add(tid)
+        if color_of(color):
+            colors.setdefault(gid, color_of(color))
+        if gid not in last or tid > last[gid][0]:
+            last[gid] = (tid, uuid)
+    return [{"window": wid, "name": name or "", "tabs": len(members.get(gid, ())),
+             "color": color_of(color) or colors.get(gid, ""),
+             "color_from": "group" if color_of(color) else ("tabs" if gid in colors else ""),
+             "collapsed": bool(collapsed),
+             "url": f"warp://session/{last[gid][1]}" if gid in last else ""}
+            for gid, wid, name, color, collapsed in groups]
+
+
+def tab_colors():
+    """Colors of every open tab, grouped or not: a lone tab of a group also holds its color."""
+    con = sqlite3.connect(f"file:{db_path()}?mode=ro", uri=True, timeout=2)
+    try:
+        return {color_of(c) for (c,) in con.execute("SELECT color FROM tabs") if color_of(c)}
+    finally:
+        con.close()
+
+
+def task_id(name):
+    m = re.match(r"(\d+)\s", name + " ")
+    return m.group(1) if m else None
+
+
+def find(groups, name):
+    want = name.casefold()
+    for g in groups:
+        if g["name"].casefold() == want:
+            return g
+    tid = task_id(name)
+    if tid:
+        for g in groups:
+            if task_id(g["name"]) == tid:
+                return g
+    return None
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--find", metavar="NAME")
+    ap.add_argument("--colors", action="store_true")
+    args = ap.parse_args()
+    try:
+        groups = load_groups()
+    except sqlite3.Error as e:
+        sys.exit(f"warp-groups: cannot read Warp's state: {e}")
+    if args.find is not None:
+        g = find(groups, args.find)
+        if not g:
+            sys.exit(1)
+        groups = [g]
+    elif args.colors:
+        try:
+            used = {g["color"] for g in groups if g["color"]} | tab_colors()
+        except sqlite3.Error as e:
+            sys.exit(f"warp-groups: cannot read Warp's state: {e}")
+        for c in sorted(used):
+            print(c)
+        return
+    for g in groups:
+        print("\t".join([str(g["window"]), g["name"], g["color"] or "-", str(g["tabs"]),
+                         "collapsed" if g["collapsed"] else "expanded", g["url"] or "-",
+                         g["color_from"] or "-"]))
+
+
+if __name__ == "__main__":
+    main()

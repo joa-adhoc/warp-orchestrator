@@ -9,8 +9,9 @@ config="${XDG_CONFIG_HOME:-$HOME/.config}/warp-orchestrator/config"
 mkdir -p "$(dirname "$config")"
 [ -f "$config" ] || cat > "$config" <<'EOF'
 SOUND=off
-GROUP_MODE=inherit
-ORCHESTRATOR_NAME=Orquestador
+GROUP_MODE=keys
+START_GAP=4
+ORCHESTRATOR_NAME=Orchestrator
 ORCHESTRATOR_COLOR=yellow
 SOUND_DONE=/usr/share/sounds/freedesktop/stereo/complete.oga
 SOUND_ATTENTION=/usr/share/sounds/freedesktop/stereo/message-new-instant.oga

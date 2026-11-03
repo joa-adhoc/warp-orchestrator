@@ -10,7 +10,8 @@ first; if it fails, stop and say why.
    - The umbrella: `project.task`, `id = <umbrella>`, fields `id, name`.
    - Its subtasks: `project.task`, `parent_id = <umbrella>`, fields `id, name, state`. Leave out
      the closed ones: `state` in `1_done` or `1_canceled`.
-2. **Group name:** `warp-name --group <umbrella id> "<umbrella name>"`.
+2. **Group name:** `<umbrella id> <1 to 3 words>`, for example `78504 Codemode`. Run
+   `warp-groups`: if a group with that id is open, use its exact name and the tabs join it.
 3. **One tab per open subtask**, named `<id> <Odoo name>`, with this prompt unless the user gave
    another:
 
@@ -22,7 +23,7 @@ first; if it fails, stop and say why.
 5. **Open** in one call:
 
    ```bash
-   warp-tab -d <dir> -g "UM <id> · <short name>" "<id1> <name1>::<prompt1>" "<id2> <name2>::<prompt2>"
+   warp-tab -d <dir> -g "<id> <short name>" "<id1> <name1>::<prompt1>" "<id2> <name2>::<prompt2>"
    ```
 
 6. **Report** how many tabs opened, the group and its color. Say which subtasks were left out

@@ -2,42 +2,45 @@
 """Build short tab and group names from an Odoo task id and name.
 
   warp-name 78420 "Skill encarar: borrador para compartir"   -> 78420 Skill encarar
-  warp-name --group 78564 "Dev Tips en la era IA"            -> UM 78564 · Dev Tips en la era IA
+  warp-name --group 78504 "Codemode con todas las tools"     -> 78504 Codemode con todas
+  warp-name --group "PRs en revisión"                        -> PRs en revisión
   warp-name "Revisar logs de Railway"                        -> Revisar logs de Railway
+
+Groups are shorter than tabs: Warp cuts long group names in the tab bar.
 """
 import re
 import sys
 
-MAX_WORDS = 6
-MAX_CHARS = 32
+LIMITS = {"tab": (6, 32), "group": (3, 20)}
+# A name that ends in one of these reads as cut off.
+TRAILING = {"a", "al", "con", "de", "del", "el", "en", "la", "las", "lo", "los", "o", "para",
+            "por", "sin", "un", "una", "y", "and", "for", "in", "of", "on", "the", "to", "with"}
 
 
-def shorten(text):
+def shorten(text, kind="tab"):
+    max_words, max_chars = LIMITS[kind]
     text = re.sub(r"^\s*(\[[^\]]*\]\s*)+", "", text)
     text = re.split(r":| - | — |\(|,", text, maxsplit=1)[0].strip()
-    words = text.split()[:MAX_WORDS]
-    while words and len(" ".join(words)) > MAX_CHARS:
+    words = text.split()[:max_words]
+    while words and len(" ".join(words)) > max_chars:
         words.pop()
-    return " ".join(words) or text[:MAX_CHARS]
+    while len(words) > 1 and words[-1].lower() in TRAILING:
+        words.pop()
+    return " ".join(words) or text[:max_chars]
 
 
 def main(argv):
-    group = argv[:1] == ["--group"]
-    if group:
-        argv = argv[1:]
+    kind = "tab"
+    if argv[:1] == ["--group"]:
+        kind, argv = "group", argv[1:]
     if not argv:
         sys.exit(__doc__.strip())
     if len(argv) >= 2 and argv[0].isdigit():
         task_id, name = argv[0], " ".join(argv[1:])
     else:
         task_id, name = None, " ".join(argv)
-    short = shorten(name)
-    if group and task_id:
-        print(f"UM {task_id} · {short}")
-    elif task_id:
-        print(f"{task_id} {short}")
-    else:
-        print(short)
+    short = shorten(name, kind)
+    print(f"{task_id} {short}" if task_id else short)
 
 
 if __name__ == "__main__":
